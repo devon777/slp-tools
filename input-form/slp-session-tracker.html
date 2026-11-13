@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+  :root { --bar-space: 70px; }
+  html { height: 100vh; height: 100lvh; overflow: hidden; }
+  body {
+    position: fixed; left: 0; right: 0; top: var(--bar-space);
+    height: calc(100vh - var(--bar-space));
+    height: calc(100lvh - var(--bar-space));
+    margin: 0; overflow: auto; overscroll-behavior: none;
+  }
+</style>
+<title>SLP Session Tracker</title>
+<style>
+  :root {
+    --bg:#f5f6f8; --card:#ffffff; --ink:#1d2530; --muted:#6b7585; --line:#e2e6eb;
+    --accent:#2f7d78; --accent-ink:#ffffff; --accent-soft:#e4f1f0;
+    --plus:#23804f; --plus-bg:#e5f4eb; --minus:#c0453c; --minus-bg:#fbeceb;
+    --chip:#eef1f4; --mid:#a86a10; --mid-bg:#fbf1df;
+    --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 4px rgba(16,24,40,.07);
+  }
+  html[data-theme="dark"] {
+    --bg:#11151a; --card:#1a2028; --ink:#e7ebf0; --muted:#97a1b0; --line:#2a323c;
+    --accent:#52b5ad; --accent-ink:#0c1a19; --accent-soft:#183331;
+    --plus:#5fcb8d; --plus-bg:#163325; --minus:#f07d74; --minus-bg:#3a1f1d;
+    --chip:#242b34; --mid:#e7b45c; --mid-bg:#352a17;
+    --shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+  html { background:var(--bg); color-scheme:light; }
+  html[data-theme="dark"] { color-scheme:dark; }
+  body { background:var(--bg); color:var(--ink); font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; -webkit-tap-highlight-color:transparent; }
+  * { box-sizing:border-box; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  input, textarea { font:inherit; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:8px; padding:7px 9px; width:100%; }
+  input:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:-1px; border-color:transparent; }
+  .muted { color:var(--muted); }
+
+  /* Top bar */
+  .topbar { position:sticky; top:0; z-index:20; background:var(--bg); border-bottom:1px solid var(--line); padding:10px 14px 0; }
+  .tb-row { display:flex; align-items:center; gap:12px; }
+  .tb-title { flex:1; min-width:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .tb-title h1 { font-size:18px; margin:0; white-space:nowrap; }
+  .tb-title input[type=date] { width:auto; padding:4px 8px; font-size:14px; }
+  .theme-toggle { width:38px; height:38px; flex:0 0 38px; border-radius:50%; border:1px solid var(--line); background:var(--card); font-size:17px; display:grid; place-items:center; }
+  .tb-actions { display:flex; gap:8px; margin-top:10px; overflow-x:auto; scrollbar-width:none; }
+  .tb-actions::-webkit-scrollbar, .tabs::-webkit-scrollbar { display:none; }
+  .btn { border:1px solid var(--line); background:var(--card); border-radius:999px; padding:7px 14px; white-space:nowrap; font-size:14px; }
+  .btn.primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
+  .btn.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); font-weight:600; }
+  .btn.small { padding:5px 11px; font-size:13px; }
+  .btn.danger { color:var(--minus); }
+  .btn:disabled { opacity:.4; cursor:default; }
+
+  /* Class tabs */
+  .tabs { display:flex; gap:2px; margin-top:10px; overflow-x:auto; scrollbar-width:none; }
+  .tab { border:none; background:transparent; padding:9px 14px 10px; border-bottom:3px solid transparent; white-space:nowrap; color:var(--muted); font-size:14.5px; font-weight:500; display:flex; align-items:center; gap:7px; }
+  .tab .cnt { font-size:11.5px; background:var(--chip); color:var(--muted); border-radius:999px; padding:1px 7px; font-weight:600; }
+  .tab[aria-selected="true"] { color:var(--accent); border-bottom-color:var(--accent); font-weight:700; }
+  .tab[aria-selected="true"] .cnt { background:var(--accent-soft); color:var(--accent); }
+  .tab.add { color:var(--accent); font-weight:600; }
+
+  main { padding:14px; max-width:1200px; margin:0 auto; padding-bottom:60px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:14px; box-shadow:var(--shadow); }
+  .settings { display:grid; grid-template-columns:1fr 1.4fr; gap:12px; }
+  .settings label { font-size:13px; color:var(--muted); display:block; }
+  .settings input { margin-top:4px; }
+  .settings .s-row { grid-column:1 / -1; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .settings .s-row .sp { flex:1; }
+  .notice { background:var(--mid-bg); border:1px solid var(--mid); color:var(--ink); border-radius:12px; padding:10px 14px; margin-bottom:14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .notice span { flex:1; min-width:200px; }
+  .empty { text-align:center; padding:36px 16px; }
+  .empty h2 { margin:0 0 6px; font-size:18px; }
+
+  /* Student card */
+  .student { background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); margin-bottom:14px; display:grid; grid-template-columns:220px 1fr; overflow:hidden; }
+  .s-head { padding:14px; border-right:1px solid var(--line); display:flex; flex-direction:column; gap:8px; background:linear-gradient(var(--accent-soft),transparent 120px); }
+  .s-name { font-size:17px; margin:0; word-break:break-word; }
+  .s-meta { font-size:13px; color:var(--muted); }
+  .s-head textarea { resize:vertical; min-height:54px; font-size:14px; }
+  .s-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .goals { padding:4px 14px 10px; min-width:0; }
+  .goals > .muted { padding:14px 0; margin:0; }
+
+  /* Goal row: goal | +/- | % | prompting */
+  .goal { display:grid; grid-template-columns:minmax(150px,1.2fr) 220px 82px minmax(200px,1.6fr) 32px; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
+  .goal:last-of-type { border-bottom:none; }
+  .g-text { font-weight:500; word-break:break-word; }
+  .g-trials { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .tbtn { width:46px; height:46px; border-radius:12px; border:1.5px solid; font-size:24px; font-weight:700; line-height:1; display:grid; place-items:center; touch-action:manipulation; user-select:none; }
+  .tbtn.plus { color:var(--plus); background:var(--plus-bg); border-color:var(--plus); }
+  .tbtn.minus { color:var(--minus); background:var(--minus-bg); border-color:var(--minus); }
+  .tbtn:active { transform:scale(.94); }
+  .tbtn.undo { width:34px; height:34px; font-size:17px; border-radius:50%; border:1px solid var(--line); background:transparent; color:var(--muted); font-weight:400; }
+  .tbtn.undo:disabled { opacity:.35; cursor:default; }
+  .tally { min-width:54px; text-align:center; font-variant-numeric:tabular-nums; font-size:15px; }
+  .tally .p { color:var(--plus); font-weight:700; }
+  .tally .m { color:var(--minus); font-weight:700; }
+  .tally .sep { color:var(--muted); margin:0 3px; }
+  .seq { width:100%; display:flex; flex-wrap:wrap; gap:3px; min-height:8px; }
+  .seq i { width:8px; height:8px; border-radius:50%; display:block; }
+  .seq i.y { background:var(--plus); }
+  .seq i.n { background:var(--minus); }
+  .g-pct { text-align:center; border-radius:10px; padding:6px 4px; background:var(--chip); }
+  .g-pct b { display:block; font-size:20px; font-variant-numeric:tabular-nums; }
+  .g-pct small { color:var(--muted); font-size:11.5px; }
+  .g-pct.hi { background:var(--plus-bg); } .g-pct.hi b { color:var(--plus); }
+  .g-pct.md { background:var(--mid-bg); } .g-pct.md b { color:var(--mid); }
+  .g-pct.lo { background:var(--minus-bg); } .g-pct.lo b { color:var(--minus); }
+  .g-prompts { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { border:1px solid var(--line); background:var(--chip); border-radius:999px; padding:6px 11px; font-size:13px; touch-action:manipulation; }
+  .chip[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600; }
+  .icon-btn { border:none; background:transparent; width:32px; height:32px; border-radius:50%; font-size:15px; }
+  .icon-btn.danger { color:var(--minus); }
+  .add-goal { margin:10px 0 2px; }
+  .add-student { width:100%; padding:14px; border:2px dashed var(--line); border-radius:14px; background:transparent; color:var(--accent); font-weight:600; font-size:15px; }
+  .col-labels { display:none; }
+
+  @media (min-width:901px) {
+    .col-labels { display:grid; grid-template-columns:220px 1fr; font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:0 1px 6px; }
+    .col-labels .gl { display:grid; grid-template-columns:minmax(150px,1.2fr) 220px 82px minmax(200px,1.6fr) 32px; gap:12px; padding:0 14px; }
+  }
+  @media (max-width:900px) {
+    .student { grid-template-columns:1fr; }
+    .s-head { border-right:none; border-bottom:1px solid var(--line); }
+    .goal { grid-template-columns:1fr auto; grid-template-areas:"text del" "trials pct" "prompts prompts"; gap:10px; }
+    .g-text { grid-area:text; } .g-trials { grid-area:trials; } .g-pct { grid-area:pct; min-width:80px; }
+    .g-prompts { grid-area:prompts; } .goal > .icon-btn, .goal > .del-sp { grid-area:del; }
+    .settings { grid-template-columns:1fr; }
+  }
+
+  /* Modal + toast */
+  .modal-back { position:fixed; inset:0; background:rgba(10,14,20,.45); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px; padding-top:calc(var(--bar-space) + 16px); }
+  .modal { background:var(--card); border-radius:16px; width:100%; max-width:620px; max-height:calc(100% - 20px); overflow:auto; padding:18px; box-shadow:0 10px 40px rgba(0,0,0,.25); }
+  .modal h2 { margin:0 0 8px; font-size:18px; }
+  .modal p { margin:6px 0 12px; color:var(--muted); font-size:14px; }
+  .modal textarea { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; white-space:pre; min-height:150px; }
+  .modal .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; justify-content:flex-end; }
+  .modal label.chk { display:flex; gap:8px; align-items:center; font-size:14px; margin:8px 0; }
+  .modal label.chk input { width:auto; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:999px; overflow:hidden; margin:4px 0 6px; }
+  .seg button { border:none; background:transparent; padding:7px 14px; font-size:14px; }
+  .seg button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); font-weight:600; }
+  .toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(20px); opacity:0; background:var(--ink); color:var(--bg); padding:9px 16px; border-radius:999px; font-size:14px; transition:.2s; z-index:60; pointer-events:none; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="tb-row">
+    <div class="tb-title">
+      <h1>SLP Session Tracker</h1>
+      <input type="date" id="session-date" aria-label="Session date">
+    </div>
+    <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark or light mode">☾</button>
+  </div>
+  <div class="tb-actions">
+    <button class="btn" id="btn-edit">Edit roster</button>
+    <button class="btn" id="btn-new">New session</button>
+    <button class="btn" id="btn-save">Save as new HTML</button>
+    <button class="btn primary" id="btn-export">Export results</button>
+  </div>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Classes"></nav>
+</header>
+<main id="app"></main>
+<div id="modal-root"></div>
+<div id="toast" class="toast"></div>
+
+<script id="roster-data" type="application/json">{"classes":[{"title":"Class 1","promptLevels":["Independent","Minimal","Moderate","Maximal"],"students":[]}]}</script>
+<script>
+(function () {
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var DEFAULT_PROMPTS = ["Independent", "Minimal", "Moderate", "Maximal"];
+  var KEY = "slp-tracker:" + location.pathname;
+  var HEAD = ["Date", "Class", "Student", "Goal", "Correct (+)", "Incorrect (-)", "Total trials", "Accuracy", "Prompting", "Trial sequence", "Notes"];
+
+  function today() { var d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  function uid() { return Math.random().toString(36).slice(2, 10); }
+  function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function fmtDate(iso) { var p = (iso || "").split("-"); if (p.length !== 3) return iso; return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); }
+  function slug(s) { return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+
+  function normClass(c, i) {
+    c = c || {};
+    return {
+      id: c.id || uid(),
+      title: c.title || "Class " + (i + 1),
+      promptLevels: Array.isArray(c.promptLevels) && c.promptLevels.length ? c.promptLevels.slice() : DEFAULT_PROMPTS.slice(),
+      students: (c.students || []).map(function (s) {
+        return {
+          id: s.id || uid(), name: s.name || "", notes: s.notes || "",
+          goals: (s.goals || []).map(function (g) {
+            return { id: g.id || uid(), text: g.text || "", history: Array.isArray(g.history) ? g.history : [], prompts: Array.isArray(g.prompts) ? g.prompts : [] };
+          })
+        };
+      })
+    };
+  }
+  function normalize(r) {
+    r = r || {};
+    // older single-class files stored title/promptLevels/students at the top level
+    var raw = Array.isArray(r.classes) ? r.classes : [{ title: r.title, promptLevels: r.promptLevels, students: r.students }];
+    var classes = raw.map(normClass);
+    if (!classes.length) classes = [normClass({}, 0)];
+    var active = classes.some(function (c) { return c.id === r.activeClass; }) ? r.activeClass : classes[0].id;
+    return { date: r.date || today(), includeHeader: r.includeHeader !== false, exportScope: r.exportScope === "all" ? "all" : "class", activeClass: active, classes: classes };
+  }
+
+  // ---------- state ----------
+  var embedded = {};
+  try { embedded = JSON.parse($("#roster-data").textContent || "{}"); } catch (e) {}
+  var state = normalize(embedded);
+  var staleNotice = false;
+  try {
+    var stored = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (stored && (Array.isArray(stored.classes) || Array.isArray(stored.students))) {
+      state = normalize(stored);
+      if (state.date !== today()) { if (hasData()) staleNotice = true; else state.date = today(); }
+    }
+  } catch (e) {}
+  var editMode = cur().students.length === 0;
+
+  function cur() { return state.classes.find(function (c) { return c.id === state.activeClass; }) || state.classes[0]; }
+  function hasData(list) {
+    return (list || state.classes).some(function (c) { return c.students.some(function (s) { return s.notes || s.goals.some(function (g) { return g.history.length || g.prompts.length; }); }); });
+  }
+  function persist() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  function findS(id) { return cur().students.find(function (s) { return s.id === id; }); }
+  function count(g) { var p = g.history.filter(function (x) { return x; }).length; return { p: p, m: g.history.length - p, t: g.history.length }; }
+  function pctOf(c) { return c.t ? Math.round(c.p / c.t * 100) : null; }
+
+  // ---------- theme ----------
+  var theme = "light";
+  try { theme = localStorage.getItem("slp-theme") || (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); } catch (e) {}
+  function applyTheme() { document.documentElement.setAttribute("data-theme", theme); $("#theme-toggle").textContent = theme === "dark" ? "☀" : "☾"; }
+  $("#theme-toggle").addEventListener("click", function () { theme = theme === "dark" ? "light" : "dark"; try { localStorage.setItem("slp-theme", theme); } catch (e) {} applyTheme(); });
+  applyTheme();
+
+  // ---------- render ----------
+  function renderTabs() {
+    $("#tabs").innerHTML = state.classes.map(function (c) {
+      return '<button class="tab" role="tab" data-cid="' + c.id + '" aria-selected="' + (c.id === state.activeClass) + '">' +
+        esc(c.title || "Untitled class") + '<span class="cnt">' + c.students.length + '</span></button>';
+    }).join("") + '<button class="tab add" data-cid="__add">+ Class</button>';
+  }
+
+  function goalHTML(g) {
+    var c = count(g), pc = pctOf(c);
+    var band = pc == null ? "" : pc >= 80 ? "hi" : pc >= 50 ? "md" : "lo";
+    var dots = g.history.slice(-40).map(function (x) { return '<i class="' + (x ? "y" : "n") + '"></i>'; }).join("");
+    return '<div class="goal" data-gid="' + g.id + '">' +
+      '<div class="g-text">' + (editMode
+        ? '<input data-field="goal" value="' + esc(g.text) + '" placeholder="Goal (e.g., says /s/ in initial position)">'
+        : (esc(g.text) || '<span class="muted">Untitled goal</span>')) + '</div>' +
+      '<div class="g-trials">' +
+        '<button class="tbtn plus" data-act="plus" aria-label="Did it">+</button>' +
+        '<button class="tbtn minus" data-act="minus" aria-label="Did not">−</button>' +
+        '<div class="tally"><span class="p">' + c.p + '</span><span class="sep">/</span><span class="m">' + c.m + '</span></div>' +
+        '<button class="tbtn undo" data-act="undo" aria-label="Undo last tap"' + (g.history.length ? "" : " disabled") + '>↶</button>' +
+        '<div class="seq">' + dots + '</div>' +
+      '</div>' +
+      '<div class="g-pct ' + band + '"><b>' + (pc == null ? "—" : pc + "%") + '</b><small>' + c.p + ' of ' + c.t + '</small></div>' +
+      '<div class="g-prompts">' + cur().promptLevels.map(function (pl) {
+        return '<button class="chip" data-act="prompt" data-level="' + esc(pl) + '" aria-pressed="' + (g.prompts.indexOf(pl) > -1) + '">' + esc(pl) + '</button>';
+      }).join("") + '</div>' +
+      (editMode ? '<button class="icon-btn danger" data-act="del-goal" aria-label="Remove goal">✕</button>' : '<span class="del-sp"></span>') +
+      '</div>';
+  }
+
+  function studentHTML(s) {
+    var trials = 0, plus = 0;
+    s.goals.forEach(function (g) { var c = count(g); trials += c.t; plus += c.p; });
+    var meta = s.goals.length + " goal" + (s.goals.length === 1 ? "" : "s") + (trials ? " · " + trials + " trials · " + Math.round(plus / trials * 100) + "% overall" : "");
+    return '<section class="student" data-sid="' + s.id + '">' +
+      '<div class="s-head">' +
+        (editMode ? '<input data-field="name" value="' + esc(s.name) + '" placeholder="Student name">'
+                  : '<h2 class="s-name">' + (esc(s.name) || '<span class="muted">Unnamed</span>') + '</h2>') +
+        '<div class="s-meta">' + meta + '</div>' +
+        '<textarea data-field="notes" rows="2" placeholder="Session notes (optional)">' + esc(s.notes) + '</textarea>' +
+        '<div class="s-actions"><button class="btn small" data-act="copy-student">Copy results</button>' +
+        (editMode ? '<button class="btn small danger" data-act="del-student">Remove student</button>' : "") + '</div>' +
+      '</div>' +
+      '<div class="goals">' +
+        (s.goals.map(goalHTML).join("") || (editMode ? "" : '<p class="muted">No goals yet — tap Edit roster to add some.</p>')) +
+        (editMode ? '<button class="btn add-goal" data-act="add-goal">+ Add goal</button>' : "") +
+      '</div></section>';
+  }
+
+  function render() {
+    var c = cur(), idx = state.classes.indexOf(c);
+    renderTabs();
+    $("#session-date").value = state.date;
+    var be = $("#btn-edit"); be.textContent = editMode ? "Done editing" : "Edit roster"; be.classList.toggle("on", editMode);
+    var h = "";
+    if (staleNotice) h += '<div class="notice"><span>These are your results from <b>' + fmtDate(state.date) + '</b>. Export them if you haven\'t yet, then start fresh.</span>' +
+      '<button class="btn small" data-act="export">Export</button><button class="btn small primary" data-act="fresh">Start today\'s session</button><button class="btn small" data-act="dismiss">Keep</button></div>';
+    if (editMode) h += '<div class="panel settings">' +
+      '<label>Class name<input data-setting="title" value="' + esc(c.title) + '" placeholder="e.g., Tuesday 10:00 artic group"></label>' +
+      '<label>Prompting buttons for this class (comma-separated)<input data-setting="prompts" value="' + esc(c.promptLevels.join(", ")) + '"></label>' +
+      '<div class="s-row"><button class="btn small" data-act="class-left"' + (idx === 0 ? " disabled" : "") + '>◀ Move tab</button>' +
+      '<button class="btn small" data-act="class-right"' + (idx === state.classes.length - 1 ? " disabled" : "") + '>Move tab ▶</button>' +
+      '<span class="sp"></span><button class="btn small danger" data-act="del-class">Delete class</button></div></div>';
+    if (!c.students.length) h += '<div class="panel empty"><h2>No students in ' + esc(c.title || "this class") + ' yet</h2><p class="muted">Add students and their goals, then tap “Done editing” to run the session. Use “+ Class” up top for another group. “Save as new HTML” keeps a ready-to-go copy with every class.</p></div>';
+    else h += '<div class="col-labels"><span>Student</span><div class="gl"><span>Goal</span><span>Did it? (+ / −)</span><span>Percent</span><span>Prompting / support</span><span></span></div></div>';
+    h += c.students.map(studentHTML).join("");
+    if (editMode) h += '<button class="add-student" data-act="add-student">+ Add student</button>';
+    $("#app").innerHTML = h;
+  }
+
+  function rerenderStudent(s) {
+    var el = document.querySelector('.student[data-sid="' + s.id + '"]');
+    if (el) el.outerHTML = studentHTML(s); else render();
+  }
+
+  // ---------- class tabs ----------
+  $("#tabs").addEventListener("click", function (e) {
+    var t = e.target.closest(".tab"); if (!t) return;
+    var cid = t.getAttribute("data-cid");
+    if (cid === "__add") {
+      var nc = normClass({ title: "Class " + (state.classes.length + 1), promptLevels: cur().promptLevels }, state.classes.length);
+      state.classes.push(nc); state.activeClass = nc.id; editMode = true; persist(); render();
+      var ti = $('input[data-setting="title"]'); if (ti) { ti.focus(); ti.select(); }
+      t = $('.tab[data-cid="' + nc.id + '"]'); if (t) t.scrollIntoView({ inline: "nearest", block: "nearest" });
+      return;
+    }
+    if (cid === state.activeClass) return;
+    state.activeClass = cid; persist();
+    if (!editMode && !cur().students.length) editMode = true;
+    render(); $("body").scrollTop = 0;
+  });
+
+  // ---------- events ----------
+  $("#app").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-act]"); if (!b || b.disabled) return;
+    var act = b.getAttribute("data-act"), c = cur();
+    var sEl = b.closest(".student"), gEl = b.closest(".goal");
+    var s = sEl && findS(sEl.getAttribute("data-sid"));
+    var g = s && gEl && s.goals.find(function (x) { return x.id === gEl.getAttribute("data-gid"); });
+
+    if (act === "plus" || act === "minus") { g.history.push(act === "plus" ? 1 : 0); persist(); rerenderStudent(s); }
+    else if (act === "undo") { g.history.pop(); persist(); rerenderStudent(s); }
+    else if (act === "prompt") {
+      var lv = b.getAttribute("data-level"), i = g.prompts.indexOf(lv);
+      if (i > -1) g.prompts.splice(i, 1); else g.prompts.push(lv);
+      g.prompts.sort(function (a, z) { return c.promptLevels.indexOf(a) - c.promptLevels.indexOf(z); });
+      persist(); b.setAttribute("aria-pressed", i === -1);
+    }
+    else if (act === "add-student") {
+      var ns = { id: uid(), name: "", notes: "", goals: [{ id: uid(), text: "", history: [], prompts: [] }] };
+      c.students.push(ns); persist(); render();
+      var inp = document.querySelector('.student[data-sid="' + ns.id + '"] input[data-field="name"]'); if (inp) { inp.focus(); inp.scrollIntoView({ block: "center" }); }
+    }
+    else if (act === "add-goal") {
+      var ng = { id: uid(), text: "", history: [], prompts: [] };
+      s.goals.push(ng); persist(); rerenderStudent(s);
+      var gi = document.querySelector('.goal[data-gid="' + ng.id + '"] input'); if (gi) gi.focus();
+    }
+    else if (act === "del-goal") {
+      var doDel = function () { s.goals = s.goals.filter(function (x) { return x !== g; }); persist(); rerenderStudent(s); };
+      if (g.history.length || g.text) confirmBox("Remove the goal “" + (g.text || "Untitled") + "”?", "Remove", doDel); else doDel();
+    }
+    else if (act === "del-student") {
+      confirmBox("Remove " + (s.name || "this student") + " and all of their goals?", "Remove", function () {
+        c.students = c.students.filter(function (x) { return x !== s; }); persist(); render();
+      });
+    }
+    else if (act === "class-left" || act === "class-right") {
+      var i0 = state.classes.indexOf(c), i1 = i0 + (act === "class-left" ? -1 : 1);
+      state.classes.splice(i0, 1); state.classes.splice(i1, 0, c); persist(); render();
+    }
+    else if (act === "del-class") {
+      confirmBox("Delete the class “" + (c.title || "Untitled") + "” with its " + c.students.length + " student(s) and their goals?", "Delete class", function () {
+        var i0 = state.classes.indexOf(c);
+        state.classes.splice(i0, 1);
+        if (!state.classes.length) state.classes.push(normClass({}, 0));
+        state.activeClass = state.classes[Math.max(0, i0 - 1)].id;
+        persist(); render(); toast("Class deleted");
+      });
+    }
+    else if (act === "copy-student") {
+      var t = toTSV(rowsFor(c, [s], state.includeHeader));
+      copyText(t).then(function (ok) { ok ? toast("Copied " + (s.name || "student") + " — paste into Sheets") : showTextModal("Copy results", t); });
+    }
+    else if (act === "export") openExport();
+    else if (act === "fresh") clearSession(true);
+    else if (act === "dismiss") { staleNotice = false; render(); }
+  });
+
+  $("#app").addEventListener("input", function (e) {
+    var t = e.target, f = t.getAttribute("data-field"), st = t.getAttribute("data-setting");
+    if (st === "title") { cur().title = t.value; persist(); renderTabs(); return; }
+    if (!f) return;
+    var s = findS(t.closest(".student").getAttribute("data-sid"));
+    if (f === "name") s.name = t.value;
+    else if (f === "notes") s.notes = t.value;
+    else if (f === "goal") { var gid = t.closest(".goal").getAttribute("data-gid"); s.goals.find(function (x) { return x.id === gid; }).text = t.value; }
+    persist();
+  });
+
+  $("#app").addEventListener("change", function (e) {
+    if (e.target.getAttribute("data-setting") !== "prompts") return;
+    var c = cur();
+    var list = e.target.value.split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+    c.promptLevels = list.length ? list : DEFAULT_PROMPTS.slice();
+    c.students.forEach(function (s) { s.goals.forEach(function (g) { g.prompts = g.prompts.filter(function (p) { return c.promptLevels.indexOf(p) > -1; }); }); });
+    persist(); render();
+  });
+
+  $("#session-date").addEventListener("change", function (e) { state.date = e.target.value || today(); staleNotice = false; persist(); render(); });
+  $("#btn-edit").addEventListener("click", function () { editMode = !editMode; render(); });
+  $("#btn-new").addEventListener("click", function () {
+    var c = cur();
+    openModal('<h2>Start a new session?</h2><p>Clears the +/− taps, prompting and notes. Students and goals stay.</p>' +
+      '<div class="row"><button class="btn" data-close>Cancel</button>' +
+      (state.classes.length > 1 ? '<button class="btn" id="n-all">Clear all classes</button>' : "") +
+      '<button class="btn primary" id="n-one">Clear ' + esc(c.title || "this class") + '</button></div>');
+    $("#n-one").addEventListener("click", function () { closeModal(); clearSession(false); });
+    var na = $("#n-all"); if (na) na.addEventListener("click", function () { closeModal(); clearSession(true); });
+  });
+  $("#btn-export").addEventListener("click", openExport);
+  $("#btn-save").addEventListener("click", openSave);
+
+  function clearSession(all) {
+    (all ? state.classes : [cur()]).forEach(function (c) {
+      c.students.forEach(function (s) { s.notes = ""; s.goals.forEach(function (g) { g.history = []; g.prompts = []; }); });
+    });
+    state.date = today(); staleNotice = false; persist(); render();
+    toast(all ? "New session started for all classes" : "New session started for " + (cur().title || "this class"));
+  }
+
+  // ---------- export ----------
+  function rowsFor(c, students, header) {
+    var rows = [];
+    students.forEach(function (s) {
+      s.goals.forEach(function (g) {
+        var n = count(g), pc = pctOf(n);
+        rows.push([state.date, c.title, s.name, g.text, n.p, n.m, n.t, pc == null ? "" : pc + "%", g.prompts.join(", "),
+          g.history.map(function (x) { return x ? "✓" : "✗"; }).join(""), s.notes]);
+      });
+    });
+    return header ? [HEAD].concat(rows) : rows;
+  }
+  function exportRows() {
+    var list = state.exportScope === "all" ? state.classes : [cur()];
+    var rows = [];
+    list.forEach(function (c) { rows = rows.concat(rowsFor(c, c.students, false)); });
+    return state.includeHeader ? [HEAD].concat(rows) : rows;
+  }
+  function safeCell(v) { v = String(v == null ? "" : v).replace(/[\t\r\n]+/g, " "); return /^[=+\-@]/.test(v) ? "'" + v : v; }
+  function toTSV(rows) { return rows.map(function (r) { return r.map(safeCell).join("\t"); }).join("\n"); }
+  function toCSV(rows) {
+    return "﻿" + rows.map(function (r) {
+      return r.map(function (v) { v = String(v == null ? "" : v).replace(/\r?\n/g, " "); return /[",]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(",");
+    }).join("\r\n");
+  }
+
+  function openExport() {
+    var c = cur();
+    openModal('<h2>Export results — ' + esc(fmtDate(state.date)) + '</h2>' +
+      '<div class="seg" id="x-scope"><button data-scope="class" aria-pressed="' + (state.exportScope === "class") + '">' + esc(c.title || "This class") + '</button>' +
+      '<button data-scope="all" aria-pressed="' + (state.exportScope === "all") + '">All classes</button></div>' +
+      '<p id="x-sum"></p>' +
+      '<label class="chk"><input type="checkbox" id="x-head"' + (state.includeHeader ? " checked" : "") + '> Include header row</label>' +
+      '<textarea id="x-text" readonly></textarea>' +
+      '<div class="row"><button class="btn" data-close>Close</button><button class="btn" id="x-csv">Download CSV</button><button class="btn primary" id="x-copy">Copy for Google Sheets</button></div>');
+    var fill = function () {
+      var list = state.exportScope === "all" ? state.classes : [cur()], st = 0, gl = 0, tr = 0;
+      list.forEach(function (k) { st += k.students.length; k.students.forEach(function (s) { gl += s.goals.length; s.goals.forEach(function (g) { tr += g.history.length; }); }); });
+      $("#x-sum").textContent = st + " students · " + gl + " goals · " + tr + " trials. In Google Sheets, click a cell and paste — each value lands in its own column. Each student card also has its own “Copy results” button.";
+      $("#x-text").value = toTSV(exportRows());
+      Array.prototype.forEach.call(document.querySelectorAll("#x-scope button"), function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-scope") === state.exportScope); });
+    };
+    fill();
+    $("#x-scope").addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; state.exportScope = b.getAttribute("data-scope"); persist(); fill(); });
+    $("#x-head").addEventListener("change", function (e) { state.includeHeader = e.target.checked; persist(); fill(); });
+    $("#x-copy").addEventListener("click", function () {
+      var t = $("#x-text").value;
+      copyText(t).then(function (ok) { if (ok) toast("Copied — paste into Google Sheets"); else { var ta = $("#x-text"); ta.focus(); ta.select(); toast("Select all & copy from the box"); } });
+    });
+    $("#x-csv").addEventListener("click", function () {
+      var base = state.exportScope === "all" ? "slp-all-classes-" : (slug(cur().title) || "slp-session") + "-";
+      var name = base + state.date + ".csv";
+      download(name, toCSV(exportRows()), "text/csv;charset=utf-8"); toast("Downloading " + name);
+    });
+  }
+
+  // ---------- save as new HTML ----------
+  function buildTemplateHTML() {
+    var data = { classes: state.classes.map(function (c) {
+      return { title: c.title, promptLevels: c.promptLevels,
+        students: c.students.map(function (s) { return { name: s.name, goals: s.goals.map(function (g) { return { text: g.text }; }) }; }) };
+    }) };
+    var clone = document.documentElement.cloneNode(true);
+    $("#app", clone).innerHTML = "";
+    $("#tabs", clone).innerHTML = "";
+    $("#modal-root", clone).innerHTML = "";
+    $("#toast", clone).className = "toast";
+    $("#roster-data", clone).textContent = JSON.stringify(data).replace(/</g, "\\u003c");
+    clone.removeAttribute("data-theme");
+    var b = $("body", clone); if (b) b.removeAttribute("class");
+    return "<!DOCTYPE html>\n" + clone.outerHTML;
+  }
+  function openSave() {
+    var def = "slp-tracker-my-classes.html";
+    var nS = state.classes.reduce(function (a, c) { return a + c.students.length; }, 0);
+    openModal('<h2>Save as a new HTML file</h2>' +
+      '<p>Saves all ' + state.classes.length + ' class' + (state.classes.length === 1 ? "" : "es") + ' (' + nS + ' students) with their goals and prompting buttons into a fresh copy of this tool. Scores and notes are left blank, so it opens ready for your next session.</p>' +
+      '<label class="muted" style="font-size:13px">File name</label><input id="s-name" value="' + esc(def) + '">' +
+      '<p style="margin-top:10px">If your viewer doesn’t download files, open this page in Safari, Chrome or Edge to save — or copy the code and paste it into a new .html file.</p>' +
+      '<div class="row"><button class="btn" data-close>Cancel</button><button class="btn" id="s-copy">Copy HTML code</button><button class="btn primary" id="s-dl">Download HTML</button></div>');
+    $("#s-dl").addEventListener("click", function () {
+      var n = $("#s-name").value.trim() || def; if (!/\.html?$/i.test(n)) n += ".html";
+      download(n, buildTemplateHTML(), "text/html;charset=utf-8"); toast("Downloading " + n);
+    });
+    $("#s-copy").addEventListener("click", function () {
+      var t = buildTemplateHTML();
+      copyText(t).then(function (ok) { ok ? toast("HTML copied") : showTextModal("HTML code", t); });
+    });
+  }
+
+  // ---------- helpers ----------
+  function download(name, text, type) {
+    var url = URL.createObjectURL(new Blob([text], { type: type }));
+    var a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 2000);
+  }
+  function copyText(t) {
+    var fallback = function () {
+      try {
+        var ta = document.createElement("textarea"); ta.value = t; ta.setAttribute("readonly", "");
+        ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta);
+        ta.select(); ta.setSelectionRange(0, t.length); var ok = document.execCommand("copy"); ta.remove(); return ok;
+      } catch (e) { return false; }
+    };
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(t).then(function () { return true; }, fallback);
+    return Promise.resolve(fallback());
+  }
+  function openModal(html) {
+    var root = $("#modal-root");
+    root.innerHTML = '<div class="modal-back"><div class="modal" role="dialog" aria-modal="true">' + html + '</div></div>';
+    root.querySelector(".modal-back").addEventListener("click", function (e) { if (e.target.classList.contains("modal-back") || e.target.hasAttribute("data-close")) closeModal(); });
+  }
+  function closeModal() { $("#modal-root").innerHTML = ""; }
+  function confirmBox(msg, okLabel, onOk) {
+    openModal('<h2>Are you sure?</h2><p>' + esc(msg) + '</p><div class="row"><button class="btn" data-close>Cancel</button><button class="btn primary" id="c-ok">' + esc(okLabel) + '</button></div>');
+    $("#c-ok").addEventListener("click", function () { closeModal(); onOk(); });
+  }
+  function showTextModal(title, text) {
+    openModal('<h2>' + esc(title) + '</h2><p>Copying was blocked here — select everything in the box and copy it.</p><textarea id="t-box" readonly></textarea><div class="row"><button class="btn primary" data-close>Done</button></div>');
+    var ta = $("#t-box"); ta.value = text; ta.focus(); ta.select();
+  }
+  var toastTimer;
+  function toast(msg) { var t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2200); }
+
+  render();
+})();
+</script>
+</body>
+</html>

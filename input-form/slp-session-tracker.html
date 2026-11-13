@@ -102,6 +102,8 @@
   .x-sec { border-top:1px solid var(--line); margin-top:16px; padding-top:12px; }
   .x-sec h3 { margin:0 0 4px; font-size:15px; }
   .x-lbl { font-size:13px; color:var(--muted); margin-right:6px; }
+  .fa-alt { width:100%; text-align:right; font-size:13px; color:var(--muted); }
+  .fa-alt a { color:var(--accent); font-weight:600; }
   .seq { width:100%; display:flex; flex-wrap:wrap; gap:3px; min-height:8px; }
   .seq i { width:8px; height:8px; border-radius:50%; display:block; }
   .seq i.y { background:var(--plus); }
@@ -470,12 +472,18 @@
       '<p>Opens in Excel, or in Google Sheets (drag it into Google Drive and open it, or use File → Import → Upload).</p>' +
       '<span class="x-lbl">One tab per</span><div class="seg" id="x-split"><button data-split="class">Class</button><button data-split="student">Student</button></div>' +
       '<p id="x-xsum" style="margin-top:4px"></p>' +
-      '<div class="row"><button class="btn primary" id="x-xlsx">Download Excel</button></div></div>' +
+      '<div class="row" id="x-xrow"></div></div>' +
       '<div class="x-sec"><h3>Copy &amp; paste / CSV</h3>' +
       '<p>In Google Sheets, click a cell and paste — each value lands in its own column. Each student card also has its own “Copy results” button.</p>' +
       '<label class="chk"><input type="checkbox" id="x-head"' + (state.includeHeader ? " checked" : "") + '> Include header row</label>' +
       '<textarea id="x-text" readonly></textarea>' +
-      '<div class="row"><button class="btn" data-close>Close</button><button class="btn" id="x-csv">Download CSV</button><button class="btn primary" id="x-copy">Copy for Google Sheets</button></div></div>');
+      '<div class="row"><button class="btn primary" id="x-copy">Copy for Google Sheets</button></div>' +
+      '<div class="row" id="x-crow"></div></div>' +
+      '<div class="row" style="margin-top:18px"><button class="btn" data-close>Close</button></div>');
+    var xlsxName = function () { return (state.exportScope === "all" ? "slp-all-classes" : (slug(cur().title) || "slp-session")) + "-by-" + state.xlsxSplit + "-" + state.date + ".xlsx"; };
+    var csvName = function () { return (state.exportScope === "all" ? "slp-all-classes" : (slug(cur().title) || "slp-session")) + "-" + state.date + ".csv"; };
+    var xFA = fileActions($("#x-xrow"), xlsxName, function () { return buildXlsx(workbookSheets()); }, "Download Excel");
+    var cFA = fileActions($("#x-crow"), csvName, function () { return new Blob([toCSV(exportRows())], { type: "text/csv" }); }, "Download CSV");
     var fill = function () {
       var list = state.exportScope === "all" ? state.classes : [cur()], st = 0, gl = 0, tr = 0;
       list.forEach(function (k) { st += k.students.length; k.students.forEach(function (s) { gl += s.goals.length; s.goals.forEach(function (g) { tr += g.history.length; }); }); });
@@ -485,24 +493,15 @@
       $("#x-text").value = toTSV(exportRows());
       Array.prototype.forEach.call(document.querySelectorAll("#x-scope button"), function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-scope") === state.exportScope); });
       Array.prototype.forEach.call(document.querySelectorAll("#x-split button"), function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-split") === state.xlsxSplit); });
+      xFA.refresh(); cFA.refresh();
     };
     fill();
     $("#x-scope").addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; state.exportScope = b.getAttribute("data-scope"); persist(); fill(); });
     $("#x-split").addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; state.xlsxSplit = b.getAttribute("data-split"); persist(); fill(); });
-    $("#x-xlsx").addEventListener("click", function () {
-      var base = state.exportScope === "all" ? "slp-all-classes" : (slug(cur().title) || "slp-session");
-      var name = base + "-by-" + state.xlsxSplit + "-" + state.date + ".xlsx";
-      downloadBlob(name, buildXlsx(workbookSheets())); toast("Downloading " + name);
-    });
     $("#x-head").addEventListener("change", function (e) { state.includeHeader = e.target.checked; persist(); fill(); });
     $("#x-copy").addEventListener("click", function () {
       var t = $("#x-text").value;
       copyText(t).then(function (ok) { if (ok) toast("Copied — paste into Google Sheets"); else { var ta = $("#x-text"); ta.focus(); ta.select(); toast("Select all & copy from the box"); } });
-    });
-    $("#x-csv").addEventListener("click", function () {
-      var base = state.exportScope === "all" ? "slp-all-classes-" : (slug(cur().title) || "slp-session") + "-";
-      var name = base + state.date + ".csv";
-      download(name, toCSV(exportRows()), "text/csv;charset=utf-8"); toast("Downloading " + name);
     });
   }
 
@@ -641,12 +640,13 @@
     openModal('<h2>Save as a new HTML file</h2>' +
       '<p>Saves all ' + state.classes.length + ' class' + (state.classes.length === 1 ? "" : "es") + ' (' + nS + ' students) with their goals and prompting buttons into a fresh copy of this tool. Scores and notes are left blank, so it opens ready for your next session.</p>' +
       '<label class="muted" style="font-size:13px">File name</label><input id="s-name" value="' + esc(def) + '">' +
-      '<p style="margin-top:10px">If your viewer doesn’t download files, open this page in Safari, Chrome or Edge to save — or copy the code and paste it into a new .html file.</p>' +
-      '<div class="row"><button class="btn" data-close>Cancel</button><button class="btn" id="s-copy">Copy HTML code</button><button class="btn primary" id="s-dl">Download HTML</button></div>');
-    $("#s-dl").addEventListener("click", function () {
-      var n = $("#s-name").value.trim() || def; if (!/\.html?$/i.test(n)) n += ".html";
-      download(n, buildTemplateHTML(), "text/html;charset=utf-8"); toast("Downloading " + n);
-    });
+      '<p style="margin-top:10px">On iPhone/iPad, “Share / Save to Files” is usually the most reliable. If nothing works in your viewer, copy the code and paste it into a new .html file.</p>' +
+      '<div class="row" id="s-row"></div>' +
+      '<div class="row"><button class="btn" data-close>Cancel</button><button class="btn" id="s-copy">Copy HTML code</button></div>');
+    var sName = function () { var n = $("#s-name").value.trim() || def; return /\.html?$/i.test(n) ? n : n + ".html"; };
+    var sFA = fileActions($("#s-row"), sName, function () { return new Blob([buildTemplateHTML()], { type: "text/html" }); }, "Download HTML");
+    sFA.refresh();
+    $("#s-name").addEventListener("change", sFA.refresh);
     $("#s-copy").addEventListener("click", function () {
       var t = buildTemplateHTML();
       copyText(t).then(function (ok) { ok ? toast("HTML copied") : showTextModal("HTML code", t); });
@@ -654,6 +654,40 @@
   }
 
   // ---------- helpers ----------
+  // Three ways to get a file out, because in-app viewers (like Documents by Readdle) often block normal downloads:
+  // 1) the iPhone/iPad share sheet (Save to Files, Google Sheets, Mail…), 2) a normal download, 3) a plain link you tap yourself.
+  var SHARE_OK = (function () {
+    try { return !!(navigator.share && navigator.canShare && navigator.canShare({ files: [new File(["x"], "x.txt", { type: "text/plain" })] })); } catch (e) { return false; }
+  })();
+  function fileActions(el, getName, makeBlob, label) {
+    el.innerHTML = (SHARE_OK ? '<button class="btn" data-fa="share">Share / Save to Files</button>' : "") +
+      '<button class="btn primary" data-fa="dl">' + esc(label) + '</button>' +
+      '<div class="fa-alt">Didn’t download? <a data-fa="link" href="#">Tap this link instead</a></div>';
+    var link = el.querySelector("[data-fa=link]");
+    el.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-fa]"); if (!b) return;
+      var k = b.getAttribute("data-fa"), name = getName();
+      if (k === "share") {
+        var f = new File([makeBlob()], name, { type: mimeFor(name) });
+        navigator.share({ files: [f], title: name }).catch(function (err) { if (!err || err.name !== "AbortError") toast("Sharing isn’t available here — try the link"); });
+      } else if (k === "dl") { downloadBlob(name, makeBlob()); toast("Downloading " + name); }
+      else if (k === "link" && link.getAttribute("href") === "#") { e.preventDefault(); toast("One moment — preparing the file"); }
+    });
+    return {
+      refresh: function () {
+        var name = getName(); link.setAttribute("download", name);
+        var fr = new FileReader(), blob = new Blob([makeBlob()], { type: mimeFor(name) });
+        fr.onload = function () { link.setAttribute("href", fr.result); };
+        fr.readAsDataURL(blob);
+      }
+    };
+  }
+  function mimeFor(name) {
+    if (/\.xlsx$/i.test(name)) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    if (/\.csv$/i.test(name)) return "text/csv";
+    if (/\.html?$/i.test(name)) return "text/html";
+    return "application/octet-stream";
+  }
   function download(name, text, type) { downloadBlob(name, new Blob([text], { type: type })); }
   function downloadBlob(name, blob) {
     var url = URL.createObjectURL(blob);

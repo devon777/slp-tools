@@ -98,7 +98,10 @@
   .tally { min-width:54px; text-align:center; font-variant-numeric:tabular-nums; font-size:15px; }
   .tally .p { color:var(--plus); font-weight:700; }
   .tally .m { color:var(--minus); font-weight:700; }
-  .tally .sep { color:var(--muted); margin:0 3px; }
+  .tally .sep { margin:0 4px; }
+  .x-sec { border-top:1px solid var(--line); margin-top:16px; padding-top:12px; }
+  .x-sec h3 { margin:0 0 4px; font-size:15px; }
+  .x-lbl { font-size:13px; color:var(--muted); margin-right:6px; }
   .seq { width:100%; display:flex; flex-wrap:wrap; gap:3px; min-height:8px; }
   .seq i { width:8px; height:8px; border-radius:50%; display:block; }
   .seq i.y { background:var(--plus); }
@@ -205,7 +208,8 @@
     var classes = raw.map(normClass);
     if (!classes.length) classes = [normClass({}, 0)];
     var active = classes.some(function (c) { return c.id === r.activeClass; }) ? r.activeClass : classes[0].id;
-    return { date: r.date || today(), includeHeader: r.includeHeader !== false, exportScope: r.exportScope === "all" ? "all" : "class", activeClass: active, classes: classes };
+    return { date: r.date || today(), includeHeader: r.includeHeader !== false, exportScope: r.exportScope === "all" ? "all" : "class",
+      xlsxSplit: r.xlsxSplit === "student" ? "student" : "class", activeClass: active, classes: classes };
   }
 
   // ---------- state ----------
@@ -255,9 +259,9 @@
         ? '<input data-field="goal" value="' + esc(g.text) + '" placeholder="Goal (e.g., says /s/ in initial position)">'
         : (esc(g.text) || '<span class="muted">Untitled goal</span>')) + '</div>' +
       '<div class="g-trials">' +
-        '<button class="tbtn plus" data-act="plus" aria-label="Did it">+</button>' +
         '<button class="tbtn minus" data-act="minus" aria-label="Did not">−</button>' +
-        '<div class="tally"><span class="p">' + c.p + '</span><span class="sep">/</span><span class="m">' + c.m + '</span></div>' +
+        '<button class="tbtn plus" data-act="plus" aria-label="Did it">+</button>' +
+        '<div class="tally"><span class="m">−' + c.m + '</span><span class="sep"></span><span class="p">+' + c.p + '</span></div>' +
         '<button class="tbtn undo" data-act="undo" aria-label="Undo last tap"' + (g.history.length ? "" : " disabled") + '>↶</button>' +
         '<div class="seq">' + dots + '</div>' +
       '</div>' +
@@ -303,7 +307,7 @@
       '<button class="btn small" data-act="class-right"' + (idx === state.classes.length - 1 ? " disabled" : "") + '>Move tab ▶</button>' +
       '<span class="sp"></span><button class="btn small danger" data-act="del-class">Delete class</button></div></div>';
     if (!c.students.length) h += '<div class="panel empty"><h2>No students in ' + esc(c.title || "this class") + ' yet</h2><p class="muted">Add students and their goals, then tap “Done editing” to run the session. Use “+ Class” up top for another group. “Save as new HTML” keeps a ready-to-go copy with every class.</p></div>';
-    else h += '<div class="col-labels"><span>Student</span><div class="gl"><span>Goal</span><span>Did it? (+ / −)</span><span>Percent</span><span>Prompting / support</span><span></span></div></div>';
+    else h += '<div class="col-labels"><span>Student</span><div class="gl"><span>Goal</span><span>Did it? (− / +)</span><span>Percent</span><span>Prompting / support</span><span></span></div></div>';
     h += c.students.map(studentHTML).join("");
     if (editMode) h += '<button class="add-student" data-act="add-student">+ Add student</button>';
     $("#app").innerHTML = h;
@@ -462,18 +466,34 @@
       '<div class="seg" id="x-scope"><button data-scope="class" aria-pressed="' + (state.exportScope === "class") + '">' + esc(c.title || "This class") + '</button>' +
       '<button data-scope="all" aria-pressed="' + (state.exportScope === "all") + '">All classes</button></div>' +
       '<p id="x-sum"></p>' +
+      '<div class="x-sec"><h3>Excel workbook (.xlsx)</h3>' +
+      '<p>Opens in Excel, or in Google Sheets (drag it into Google Drive and open it, or use File → Import → Upload).</p>' +
+      '<span class="x-lbl">One tab per</span><div class="seg" id="x-split"><button data-split="class">Class</button><button data-split="student">Student</button></div>' +
+      '<p id="x-xsum" style="margin-top:4px"></p>' +
+      '<div class="row"><button class="btn primary" id="x-xlsx">Download Excel</button></div></div>' +
+      '<div class="x-sec"><h3>Copy &amp; paste / CSV</h3>' +
+      '<p>In Google Sheets, click a cell and paste — each value lands in its own column. Each student card also has its own “Copy results” button.</p>' +
       '<label class="chk"><input type="checkbox" id="x-head"' + (state.includeHeader ? " checked" : "") + '> Include header row</label>' +
       '<textarea id="x-text" readonly></textarea>' +
-      '<div class="row"><button class="btn" data-close>Close</button><button class="btn" id="x-csv">Download CSV</button><button class="btn primary" id="x-copy">Copy for Google Sheets</button></div>');
+      '<div class="row"><button class="btn" data-close>Close</button><button class="btn" id="x-csv">Download CSV</button><button class="btn primary" id="x-copy">Copy for Google Sheets</button></div></div>');
     var fill = function () {
       var list = state.exportScope === "all" ? state.classes : [cur()], st = 0, gl = 0, tr = 0;
       list.forEach(function (k) { st += k.students.length; k.students.forEach(function (s) { gl += s.goals.length; s.goals.forEach(function (g) { tr += g.history.length; }); }); });
-      $("#x-sum").textContent = st + " students · " + gl + " goals · " + tr + " trials. In Google Sheets, click a cell and paste — each value lands in its own column. Each student card also has its own “Copy results” button.";
+      $("#x-sum").textContent = st + " students · " + gl + " goals · " + tr + " trials";
+      var tabs = workbookSheets().map(function (w) { return w.name; });
+      $("#x-xsum").textContent = tabs.length + " tab" + (tabs.length === 1 ? "" : "s") + ": " + tabs.join(", ");
       $("#x-text").value = toTSV(exportRows());
       Array.prototype.forEach.call(document.querySelectorAll("#x-scope button"), function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-scope") === state.exportScope); });
+      Array.prototype.forEach.call(document.querySelectorAll("#x-split button"), function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-split") === state.xlsxSplit); });
     };
     fill();
     $("#x-scope").addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; state.exportScope = b.getAttribute("data-scope"); persist(); fill(); });
+    $("#x-split").addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; state.xlsxSplit = b.getAttribute("data-split"); persist(); fill(); });
+    $("#x-xlsx").addEventListener("click", function () {
+      var base = state.exportScope === "all" ? "slp-all-classes" : (slug(cur().title) || "slp-session");
+      var name = base + "-by-" + state.xlsxSplit + "-" + state.date + ".xlsx";
+      downloadBlob(name, buildXlsx(workbookSheets())); toast("Downloading " + name);
+    });
     $("#x-head").addEventListener("change", function (e) { state.includeHeader = e.target.checked; persist(); fill(); });
     $("#x-copy").addEventListener("click", function () {
       var t = $("#x-text").value;
@@ -484,6 +504,119 @@
       var name = base + state.date + ".csv";
       download(name, toCSV(exportRows()), "text/csv;charset=utf-8"); toast("Downloading " + name);
     });
+  }
+
+  // ---------- Excel (.xlsx) export, built in the page — no internet needed ----------
+  function dateSerial(iso) { var p = (iso || "").split("-"); if (p.length !== 3) return null; return (Date.UTC(+p[0], +p[1] - 1, +p[2]) - Date.UTC(1899, 11, 30)) / 86400000; }
+  function xlRows(c, s) {
+    return s.goals.map(function (g) {
+      var n = count(g), ds = dateSerial(state.date);
+      return [ds == null ? state.date : { d: ds }, c.title, s.name, g.text, n.p, n.m, n.t, n.t ? { pct: n.p / n.t } : "",
+        g.prompts.join(", "), g.history.map(function (x) { return x ? "✓" : "✗"; }).join(""), s.notes];
+    });
+  }
+  function workbookSheets() {
+    var list = state.exportScope === "all" ? state.classes : [cur()], sheets = [], used = {};
+    function nameFor(raw, fallback) {
+      var n = String(raw || "").replace(/[\[\]:*?\/\\]/g, "-").replace(/^'+|'+$/g, "").trim() || fallback;
+      n = n.slice(0, 31); var base = n, i = 2;
+      while (used[n.toLowerCase()]) { var suf = " (" + i++ + ")"; n = base.slice(0, 31 - suf.length) + suf; }
+      used[n.toLowerCase()] = 1; return n;
+    }
+    if (state.xlsxSplit === "class") {
+      list.forEach(function (c, i) {
+        var rows = []; c.students.forEach(function (s) { rows = rows.concat(xlRows(c, s)); });
+        sheets.push({ name: nameFor(c.title, "Class " + (i + 1)), rows: rows });
+      });
+    } else {
+      var k = 0;
+      list.forEach(function (c) { c.students.forEach(function (s) { k++; sheets.push({ name: nameFor(s.name, "Student " + k), rows: xlRows(c, s) }); }); });
+    }
+    if (!sheets.length) sheets.push({ name: "Results", rows: [] });
+    return sheets;
+  }
+  function xmlEsc(s) { return String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function colName(i) { var s = ""; i++; while (i) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+  var CRC_T = (function () { var t = [], c; for (var n = 0; n < 256; n++) { c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(u) { var c = 0xFFFFFFFF; for (var i = 0; i < u.length; i++) c = CRC_T[(c ^ u[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  function zipBlob(files, type) {
+    var enc = new TextEncoder(), parts = [], central = [], offset = 0, d = new Date();
+    var tm = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    var dt = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    files.forEach(function (f) {
+      var nm = enc.encode(f.name), data = enc.encode(f.data), crc = crc32(data);
+      var h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+      h.setUint16(10, tm, true); h.setUint16(12, dt, true); h.setUint32(14, crc, true);
+      h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, nm.length, true); h.setUint16(28, 0, true);
+      parts.push(new Uint8Array(h.buffer), nm, data);
+      var c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true);
+      c.setUint16(12, tm, true); c.setUint16(14, dt, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true);
+      c.setUint16(28, nm.length, true); c.setUint32(42, offset, true);
+      central.push(new Uint8Array(c.buffer), nm);
+      offset += 30 + nm.length + data.length;
+    });
+    var cd = central.reduce(function (a, b) { return a + b.length; }, 0);
+    var e = new DataView(new ArrayBuffer(22));
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cd, true); e.setUint32(16, offset, true);
+    return new Blob(parts.concat(central, [new Uint8Array(e.buffer)]), { type: type });
+  }
+  function buildXlsx(sheets) {
+    var NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"', X = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+    var sst = [], sstIdx = new Map(), sstCount = 0;
+    function si(v) { sstCount++; if (!sstIdx.has(v)) { sstIdx.set(v, sst.length); sst.push(v); } return sstIdx.get(v); }
+    var widths = [12, 18, 18, 34, 12, 13, 12, 10, 24, 18, 36];
+    var files = [];
+    sheets.forEach(function (sh, n) {
+      var all = [HEAD].concat(sh.rows), xml = "";
+      all.forEach(function (row, r) {
+        xml += '<row r="' + (r + 1) + '">';
+        row.forEach(function (v, ci) {
+          var ref = colName(ci) + (r + 1);
+          if (r === 0) xml += '<c r="' + ref + '" t="s" s="1"><v>' + si(String(v)) + '</v></c>';
+          else if (v && typeof v === "object" && "d" in v) xml += '<c r="' + ref + '" s="3"><v>' + v.d + '</v></c>';
+          else if (v && typeof v === "object" && "pct" in v) xml += '<c r="' + ref + '" s="2"><v>' + v.pct + '</v></c>';
+          else if (typeof v === "number") xml += '<c r="' + ref + '"><v>' + v + '</v></c>';
+          else if (v !== "" && v != null) xml += '<c r="' + ref + '" t="s"><v>' + si(String(v)) + '</v></c>';
+        });
+        xml += '</row>';
+      });
+      files.push({ name: "xl/worksheets/sheet" + (n + 1) + ".xml", data: X + '<worksheet ' + NS + '>' +
+        '<sheetViews><sheetView workbookViewId="0"' + (n === 0 ? ' tabSelected="1"' : '') + '><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
+        '<cols>' + widths.map(function (w, i) { return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>'; }).join("") + '</cols>' +
+        '<sheetData>' + xml + '</sheetData></worksheet>' });
+    });
+    var R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    files.push({ name: "xl/sharedStrings.xml", data: X + '<sst ' + NS + ' count="' + sstCount + '" uniqueCount="' + sst.length + '">' +
+      sst.map(function (s) { return '<si><t xml:space="preserve">' + xmlEsc(s) + '</t></si>'; }).join("") + '</sst>' });
+    files.push({ name: "xl/styles.xml", data: X + '<styleSheet ' + NS + '>' +
+      '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE4F1F0"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+      '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>' +
+      '<xf numFmtId="9" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+      '<xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>' +
+      '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' });
+    files.push({ name: "xl/workbook.xml", data: X + '<workbook ' + NS + ' xmlns:r="' + R + '"><bookViews><workbookView/></bookViews><sheets>' +
+      sheets.map(function (sh, n) { return '<sheet name="' + xmlEsc(sh.name) + '" sheetId="' + (n + 1) + '" r:id="rId' + (n + 1) + '"/>'; }).join("") + '</sheets></workbook>' });
+    var k = sheets.length;
+    files.push({ name: "xl/_rels/workbook.xml.rels", data: X + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      sheets.map(function (sh, n) { return '<Relationship Id="rId' + (n + 1) + '" Type="' + R + '/worksheet" Target="worksheets/sheet' + (n + 1) + '.xml"/>'; }).join("") +
+      '<Relationship Id="rId' + (k + 1) + '" Type="' + R + '/styles" Target="styles.xml"/>' +
+      '<Relationship Id="rId' + (k + 2) + '" Type="' + R + '/sharedStrings" Target="sharedStrings.xml"/></Relationships>' });
+    files.push({ name: "_rels/.rels", data: X + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="' + R + '/officeDocument" Target="xl/workbook.xml"/></Relationships>' });
+    var CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.";
+    files.unshift({ name: "[Content_Types].xml", data: X + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="' + CT + 'sheet.main+xml"/>' +
+      sheets.map(function (sh, n) { return '<Override PartName="/xl/worksheets/sheet' + (n + 1) + '.xml" ContentType="' + CT + 'worksheet+xml"/>'; }).join("") +
+      '<Override PartName="/xl/styles.xml" ContentType="' + CT + 'styles+xml"/>' +
+      '<Override PartName="/xl/sharedStrings.xml" ContentType="' + CT + 'sharedStrings+xml"/></Types>' });
+    return zipBlob(files, CT + "sheet");
   }
 
   // ---------- save as new HTML ----------
@@ -521,8 +654,9 @@
   }
 
   // ---------- helpers ----------
-  function download(name, text, type) {
-    var url = URL.createObjectURL(new Blob([text], { type: type }));
+  function download(name, text, type) { downloadBlob(name, new Blob([text], { type: type })); }
+  function downloadBlob(name, blob) {
+    var url = URL.createObjectURL(blob);
     var a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click();
     setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 2000);
   }

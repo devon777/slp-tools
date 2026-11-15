@@ -52,6 +52,9 @@
   .btn.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); font-weight:600; }
   .btn.small { padding:5px 11px; font-size:13px; }
   .btn.danger { color:var(--minus); }
+  .btn.danger-fill { background:var(--minus); border-color:var(--minus); color:#fff; font-weight:600; }
+  .modal h2.warn { color:var(--minus); }
+  .modal p.alert { color:var(--minus); font-weight:600; }
   .btn:disabled { opacity:.4; cursor:default; }
 
   /* Class tabs */
@@ -102,6 +105,8 @@
   .x-sec { border-top:1px solid var(--line); margin-top:16px; padding-top:12px; }
   .x-sec h3 { margin:0 0 4px; font-size:15px; }
   .x-lbl { font-size:13px; color:var(--muted); margin-right:6px; }
+  .badge { background:var(--minus); color:#fff; border-radius:999px; font-size:11px; font-weight:700; padding:1px 6px; margin-left:6px; vertical-align:1px; }
+  .badge[hidden] { display:none; }
   .fa-alt { width:100%; text-align:right; font-size:13px; color:var(--muted); }
   .fa-alt a { color:var(--accent); font-weight:600; }
   .seq { width:100%; display:flex; flex-wrap:wrap; gap:3px; min-height:8px; }
@@ -150,6 +155,8 @@
   .seg button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); font-weight:600; }
   .toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(20px); opacity:0; background:var(--ink); color:var(--bg); padding:9px 16px; border-radius:999px; font-size:14px; transition:.2s; z-index:60; pointer-events:none; }
   .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  .badge.light { background:var(--accent-ink); color:var(--accent); }
+  #x-sum { color:var(--ink); }
 </style>
 </head>
 <body>
@@ -162,10 +169,10 @@
     <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark or light mode">☾</button>
   </div>
   <div class="tb-actions">
-    <button class="btn" id="btn-edit">Edit roster</button>
-    <button class="btn" id="btn-new">New session</button>
-    <button class="btn" id="btn-save">Save as new HTML</button>
     <button class="btn primary" id="btn-export">Export results</button>
+    <button class="btn" id="btn-clear">Clear results</button>
+    <button class="btn" id="btn-edit">Edit roster</button>
+    <button class="btn" id="btn-save">Save configuration</button>
   </div>
   <nav class="tabs" id="tabs" role="tablist" aria-label="Classes"></nav>
 </header>
@@ -179,25 +186,35 @@
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var DEFAULT_PROMPTS = ["Independent", "Minimal", "Moderate", "Maximal"];
   var KEY = "slp-tracker:" + location.pathname;
-  var HEAD = ["Date", "Class", "Student", "Goal", "Correct (+)", "Incorrect (-)", "Total trials", "Accuracy", "Prompting", "Trial sequence", "Notes"];
+  var HEAD = ["Date", "Class", "Student", "Goal", "Correct (+)", "Incorrect (-)", "Accuracy", "Prompting", "Notes"];
+  var WIDTHS = [12, 18, 18, 34, 12, 13, 10, 24, 40];
 
   function today() { var d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
   function uid() { return Math.random().toString(36).slice(2, 10); }
   function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
-  function fmtDate(iso) { var p = (iso || "").split("-"); if (p.length !== 3) return iso; return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); }
+  function fmtDate(iso) { var p = (iso || "").split("-"); if (p.length !== 3) return iso; return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }); }
   function slug(s) { return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
 
-  function normClass(c, i) {
+  // ---------- data ----------
+  // Every goal keeps its results by date: goal.days["2026-11-13"] = { h:[1,0,1] (+ = 1, − = 0), p:["Minimal"] }
+  // Every student keeps notes by date:    student.notes["2026-11-13"] = "text"
+  function normClass(c, i, legacyDate) {
     c = c || {};
     return {
       id: c.id || uid(),
       title: c.title || "Class " + (i + 1),
       promptLevels: Array.isArray(c.promptLevels) && c.promptLevels.length ? c.promptLevels.slice() : DEFAULT_PROMPTS.slice(),
       students: (c.students || []).map(function (s) {
+        var notes = {};
+        if (s.notes && typeof s.notes === "object") notes = s.notes;
+        else if (typeof s.notes === "string" && s.notes) notes[legacyDate] = s.notes;   // older versions: one note
         return {
-          id: s.id || uid(), name: s.name || "", notes: s.notes || "",
+          id: s.id || uid(), name: s.name || "", notes: notes,
           goals: (s.goals || []).map(function (g) {
-            return { id: g.id || uid(), text: g.text || "", history: Array.isArray(g.history) ? g.history : [], prompts: Array.isArray(g.prompts) ? g.prompts : [] };
+            var days = g.days && typeof g.days === "object" ? g.days : {};
+            if ((Array.isArray(g.history) && g.history.length) || (Array.isArray(g.prompts) && g.prompts.length))   // older versions
+              days[legacyDate] = { h: g.history || [], p: g.prompts || [] };
+            return { id: g.id || uid(), text: g.text || "", days: days };
           })
         };
       })
@@ -205,37 +222,72 @@
   }
   function normalize(r) {
     r = r || {};
-    // older single-class files stored title/promptLevels/students at the top level
+    var legacyDate = r.date || today();
     var raw = Array.isArray(r.classes) ? r.classes : [{ title: r.title, promptLevels: r.promptLevels, students: r.students }];
-    var classes = raw.map(normClass);
-    if (!classes.length) classes = [normClass({}, 0)];
+    var classes = raw.map(function (c, i) { return normClass(c, i, legacyDate); });
+    if (!classes.length) classes = [normClass({}, 0, legacyDate)];
     var active = classes.some(function (c) { return c.id === r.activeClass; }) ? r.activeClass : classes[0].id;
-    return { date: r.date || today(), includeHeader: r.includeHeader !== false, exportScope: r.exportScope === "all" ? "all" : "class",
-      xlsxSplit: r.xlsxSplit === "student" ? "student" : "class", activeClass: active, classes: classes };
+    return {
+      viewDate: today(), activeClass: active, classes: classes,
+      includeHeader: r.includeHeader === true, exportView: r.exportView === "all" ? "all" : "new",
+      exported: r.exported && typeof r.exported === "object" ? r.exported : {},
+      lastExport: r.lastExport || null
+    };
   }
 
-  // ---------- state ----------
   var embedded = {};
   try { embedded = JSON.parse($("#roster-data").textContent || "{}"); } catch (e) {}
   var state = normalize(embedded);
-  var staleNotice = false;
   try {
     var stored = JSON.parse(localStorage.getItem(KEY) || "null");
-    if (stored && (Array.isArray(stored.classes) || Array.isArray(stored.students))) {
-      state = normalize(stored);
-      if (state.date !== today()) { if (hasData()) staleNotice = true; else state.date = today(); }
-    }
+    if (stored && (Array.isArray(stored.classes) || Array.isArray(stored.students))) state = normalize(stored);
   } catch (e) {}
   var editMode = cur().students.length === 0;
 
   function cur() { return state.classes.find(function (c) { return c.id === state.activeClass; }) || state.classes[0]; }
-  function hasData(list) {
-    return (list || state.classes).some(function (c) { return c.students.some(function (s) { return s.notes || s.goals.some(function (g) { return g.history.length || g.prompts.length; }); }); });
-  }
-  function persist() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
   function findS(id) { return cur().students.find(function (s) { return s.id === id; }); }
-  function count(g) { var p = g.history.filter(function (x) { return x; }).length; return { p: p, m: g.history.length - p, t: g.history.length }; }
+  function dayOf(g, d) { return g.days[d || state.viewDate] || { h: [], p: [] }; }
+  function ensureDay(g) { return g.days[state.viewDate] || (g.days[state.viewDate] = { h: [], p: [] }); }
+  function tidyDay(g) { var d = g.days[state.viewDate]; if (d && !d.h.length && !d.p.length) delete g.days[state.viewDate]; }
+  function count(h) { var p = h.filter(function (x) { return x; }).length; return { p: p, m: h.length - p, t: h.length }; }
   function pctOf(c) { return c.t ? Math.round(c.p / c.t * 100) : null; }
+
+  function persist() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    updateBadges();
+  }
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
+  // ---------- rows for export: one row per student, goal and date ----------
+  function allRows() {
+    var out = [];
+    state.classes.forEach(function (c, ci) {
+      c.students.forEach(function (s, si) {
+        var dates = {};
+        s.goals.forEach(function (g) { Object.keys(g.days).forEach(function (d) { dates[d] = 1; }); });
+        Object.keys(s.notes).forEach(function (d) { if (s.notes[d]) dates[d] = 1; });
+        Object.keys(dates).forEach(function (d) {
+          var note = s.notes[d] || "", any = false;
+          s.goals.forEach(function (g, gi) {
+            var dd = g.days[d]; if (!dd || (!dd.h.length && !dd.p.length)) return;
+            any = true; var n = count(dd.h);
+            out.push({ key: d + "|" + s.id + "|" + g.id, sig: JSON.stringify([dd.h, dd.p, note]), order: [d, ci, si, gi], s: s, g: g, date: d,
+              cells: [d, c.title, s.name, g.text, n.p, n.m, n.t ? n.p / n.t : null, dd.p.join(", "), note] });
+          });
+          if (!any && note) out.push({ key: d + "|" + s.id + "|note", sig: JSON.stringify([note]), order: [d, ci, si, -1], s: s, g: null, date: d,
+            cells: [d, c.title, s.name, "", "", "", null, "", note] });
+        });
+      });
+    });
+    out.sort(function (a, b) { for (var i = 0; i < 4; i++) { if (a.order[i] < b.order[i]) return -1; if (a.order[i] > b.order[i]) return 1; } return 0; });
+    return out;
+  }
+  function isNew(r) { return state.exported[r.key] !== r.sig; }
+  function wasUpdated(r) { return state.exported[r.key] != null && state.exported[r.key] !== r.sig; }
+
+  function updateBadges() {
+    var e = $("#btn-export"); if (e) { var k = allRows().filter(isNew).length; e.innerHTML = "Export results" + (k ? '<span class="badge light">' + k + " new</span>" : ""); }
+  }
 
   // ---------- theme ----------
   var theme = "light";
@@ -253,9 +305,9 @@
   }
 
   function goalHTML(g) {
-    var c = count(g), pc = pctOf(c);
+    var dd = dayOf(g), c = count(dd.h), pc = pctOf(c);
     var band = pc == null ? "" : pc >= 80 ? "hi" : pc >= 50 ? "md" : "lo";
-    var dots = g.history.slice(-40).map(function (x) { return '<i class="' + (x ? "y" : "n") + '"></i>'; }).join("");
+    var dots = dd.h.slice(-40).map(function (x) { return '<i class="' + (x ? "y" : "n") + '"></i>'; }).join("");
     return '<div class="goal" data-gid="' + g.id + '">' +
       '<div class="g-text">' + (editMode
         ? '<input data-field="goal" value="' + esc(g.text) + '" placeholder="Goal (e.g., says /s/ in initial position)">'
@@ -264,12 +316,12 @@
         '<button class="tbtn minus" data-act="minus" aria-label="Did not">−</button>' +
         '<button class="tbtn plus" data-act="plus" aria-label="Did it">+</button>' +
         '<div class="tally"><span class="m">−' + c.m + '</span><span class="sep"></span><span class="p">+' + c.p + '</span></div>' +
-        '<button class="tbtn undo" data-act="undo" aria-label="Undo last tap"' + (g.history.length ? "" : " disabled") + '>↶</button>' +
+        '<button class="tbtn undo" data-act="undo" aria-label="Undo last tap"' + (dd.h.length ? "" : " disabled") + '>↶</button>' +
         '<div class="seq">' + dots + '</div>' +
       '</div>' +
       '<div class="g-pct ' + band + '"><b>' + (pc == null ? "—" : pc + "%") + '</b><small>' + c.p + ' of ' + c.t + '</small></div>' +
       '<div class="g-prompts">' + cur().promptLevels.map(function (pl) {
-        return '<button class="chip" data-act="prompt" data-level="' + esc(pl) + '" aria-pressed="' + (g.prompts.indexOf(pl) > -1) + '">' + esc(pl) + '</button>';
+        return '<button class="chip" data-act="prompt" data-level="' + esc(pl) + '" aria-pressed="' + (dd.p.indexOf(pl) > -1) + '">' + esc(pl) + '</button>';
       }).join("") + '</div>' +
       (editMode ? '<button class="icon-btn danger" data-act="del-goal" aria-label="Remove goal">✕</button>' : '<span class="del-sp"></span>') +
       '</div>';
@@ -277,16 +329,15 @@
 
   function studentHTML(s) {
     var trials = 0, plus = 0;
-    s.goals.forEach(function (g) { var c = count(g); trials += c.t; plus += c.p; });
-    var meta = s.goals.length + " goal" + (s.goals.length === 1 ? "" : "s") + (trials ? " · " + trials + " trials · " + Math.round(plus / trials * 100) + "% overall" : "");
+    s.goals.forEach(function (g) { var c = count(dayOf(g).h); trials += c.t; plus += c.p; });
+    var meta = s.goals.length + " goal" + (s.goals.length === 1 ? "" : "s") + (trials ? " · " + trials + " trial" + (trials === 1 ? "" : "s") + " · " + Math.round(plus / trials * 100) + "% overall" : "");
     return '<section class="student" data-sid="' + s.id + '">' +
       '<div class="s-head">' +
         (editMode ? '<input data-field="name" value="' + esc(s.name) + '" placeholder="Student name">'
                   : '<h2 class="s-name">' + (esc(s.name) || '<span class="muted">Unnamed</span>') + '</h2>') +
         '<div class="s-meta">' + meta + '</div>' +
-        '<textarea data-field="notes" rows="2" placeholder="Session notes (optional)">' + esc(s.notes) + '</textarea>' +
-        '<div class="s-actions"><button class="btn small" data-act="copy-student">Copy results</button>' +
-        (editMode ? '<button class="btn small danger" data-act="del-student">Remove student</button>' : "") + '</div>' +
+        '<textarea data-field="notes" rows="2" placeholder="Notes for ' + esc(fmtDate(state.viewDate)) + ' (optional)">' + esc(s.notes[state.viewDate] || "") + '</textarea>' +
+        (editMode ? '<div class="s-actions"><button class="btn small danger" data-act="del-student">Remove student</button></div>' : "") +
       '</div>' +
       '<div class="goals">' +
         (s.goals.map(goalHTML).join("") || (editMode ? "" : '<p class="muted">No goals yet — tap Edit roster to add some.</p>')) +
@@ -297,24 +348,25 @@
   function render() {
     var c = cur(), idx = state.classes.indexOf(c);
     renderTabs();
-    $("#session-date").value = state.date;
+    $("#session-date").value = state.viewDate;
     var be = $("#btn-edit"); be.textContent = editMode ? "Done editing" : "Edit roster"; be.classList.toggle("on", editMode);
     var h = "";
-    if (staleNotice) h += '<div class="notice"><span>These are your results from <b>' + fmtDate(state.date) + '</b>. Export them if you haven\'t yet, then start fresh.</span>' +
-      '<button class="btn small" data-act="export">Export</button><button class="btn small primary" data-act="fresh">Start today\'s session</button><button class="btn small" data-act="dismiss">Keep</button></div>';
+    if (state.viewDate !== today()) h += '<div class="notice"><span>You’re looking at <b>' + esc(fmtDate(state.viewDate)) + '</b>. Taps and notes are saved to that day.</span>' +
+      '<button class="btn small primary" data-act="to-today">Back to today</button></div>';
     if (editMode) h += '<div class="panel settings">' +
       '<label>Class name<input data-setting="title" value="' + esc(c.title) + '" placeholder="e.g., Tuesday 10:00 artic group"></label>' +
       '<label>Prompting buttons for this class (comma-separated)<input data-setting="prompts" value="' + esc(c.promptLevels.join(", ")) + '"></label>' +
       '<div class="s-row"><button class="btn small" data-act="class-left"' + (idx === 0 ? " disabled" : "") + '>◀ Move tab</button>' +
       '<button class="btn small" data-act="class-right"' + (idx === state.classes.length - 1 ? " disabled" : "") + '>Move tab ▶</button>' +
       '<span class="sp"></span><button class="btn small danger" data-act="del-class">Delete class</button></div></div>';
-    if (!c.students.length) h += '<div class="panel empty"><h2>No students in ' + esc(c.title || "this class") + ' yet</h2><p class="muted">Add students and their goals, then tap “Done editing” to run the session. Use “+ Class” up top for another group. “Save as new HTML” keeps a ready-to-go copy with every class.</p></div>';
+    if (!c.students.length) h += '<div class="panel empty"><h2>No students in ' + esc(c.title || "this class") + ' yet</h2><p class="muted">Add students and their goals, then tap “Done editing” to start tapping. Use “+ Class” up top for another group.</p>' +
+      (state.classes.every(function (k) { return !k.students.length; }) ? '<p class="muted">Already set up before? Load your saved configuration file instead.</p><button class="btn primary" data-act="load-config">Load configuration</button>' : "") + '</div>';
     else h += '<div class="col-labels"><span>Student</span><div class="gl"><span>Goal</span><span>Did it? (− / +)</span><span>Percent</span><span>Prompting / support</span><span></span></div></div>';
     h += c.students.map(studentHTML).join("");
     if (editMode) h += '<button class="add-student" data-act="add-student">+ Add student</button>';
     $("#app").innerHTML = h;
+    updateBadges();
   }
-
   function rerenderStudent(s) {
     var el = document.querySelector('.student[data-sid="' + s.id + '"]');
     if (el) el.outerHTML = studentHTML(s); else render();
@@ -325,19 +377,18 @@
     var t = e.target.closest(".tab"); if (!t) return;
     var cid = t.getAttribute("data-cid");
     if (cid === "__add") {
-      var nc = normClass({ title: "Class " + (state.classes.length + 1), promptLevels: cur().promptLevels }, state.classes.length);
+      var nc = normClass({ title: "Class " + (state.classes.length + 1), promptLevels: cur().promptLevels }, state.classes.length, today());
       state.classes.push(nc); state.activeClass = nc.id; editMode = true; persist(); render();
       var ti = $('input[data-setting="title"]'); if (ti) { ti.focus(); ti.select(); }
-      t = $('.tab[data-cid="' + nc.id + '"]'); if (t) t.scrollIntoView({ inline: "nearest", block: "nearest" });
       return;
     }
     if (cid === state.activeClass) return;
-    state.activeClass = cid; persist();
+    state.activeClass = cid; persist(true);
     if (!editMode && !cur().students.length) editMode = true;
-    render(); $("body").scrollTop = 0;
+    render(); document.body.scrollTop = 0;
   });
 
-  // ---------- events ----------
+  // ---------- taps & edits ----------
   $("#app").addEventListener("click", function (e) {
     var b = e.target.closest("[data-act]"); if (!b || b.disabled) return;
     var act = b.getAttribute("data-act"), c = cur();
@@ -345,31 +396,42 @@
     var s = sEl && findS(sEl.getAttribute("data-sid"));
     var g = s && gEl && s.goals.find(function (x) { return x.id === gEl.getAttribute("data-gid"); });
 
-    if (act === "plus" || act === "minus") { g.history.push(act === "plus" ? 1 : 0); persist(); rerenderStudent(s); }
-    else if (act === "undo") { g.history.pop(); persist(); rerenderStudent(s); }
+    if (act === "plus" || act === "minus") { ensureDay(g).h.push(act === "plus" ? 1 : 0); persist(); rerenderStudent(s); }
+    else if (act === "undo") { ensureDay(g).h.pop(); tidyDay(g); persist(); rerenderStudent(s); }
     else if (act === "prompt") {
-      var lv = b.getAttribute("data-level"), i = g.prompts.indexOf(lv);
-      if (i > -1) g.prompts.splice(i, 1); else g.prompts.push(lv);
-      g.prompts.sort(function (a, z) { return c.promptLevels.indexOf(a) - c.promptLevels.indexOf(z); });
-      persist(); b.setAttribute("aria-pressed", i === -1);
+      var dd = ensureDay(g), lv = b.getAttribute("data-level"), i = dd.p.indexOf(lv);
+      if (i > -1) dd.p.splice(i, 1); else dd.p.push(lv);
+      dd.p.sort(function (a, z) { return c.promptLevels.indexOf(a) - c.promptLevels.indexOf(z); });
+      tidyDay(g); persist(); b.setAttribute("aria-pressed", i === -1);
     }
+    else if (act === "to-today") { state.viewDate = today(); render(); }
+    else if (act === "load-config") { openSave(); var fi = $("#cf-file"); if (fi) fi.scrollIntoView({ block: "center" }); }
     else if (act === "add-student") {
-      var ns = { id: uid(), name: "", notes: "", goals: [{ id: uid(), text: "", history: [], prompts: [] }] };
+      var ns = { id: uid(), name: "", notes: {}, goals: [{ id: uid(), text: "", days: {} }] };
       c.students.push(ns); persist(); render();
       var inp = document.querySelector('.student[data-sid="' + ns.id + '"] input[data-field="name"]'); if (inp) { inp.focus(); inp.scrollIntoView({ block: "center" }); }
     }
     else if (act === "add-goal") {
-      var ng = { id: uid(), text: "", history: [], prompts: [] };
+      var ng = { id: uid(), text: "", days: {} };
       s.goals.push(ng); persist(); rerenderStudent(s);
       var gi = document.querySelector('.goal[data-gid="' + ng.id + '"] input'); if (gi) gi.focus();
     }
     else if (act === "del-goal") {
+      var nd = Object.keys(g.days).length;
       var doDel = function () { s.goals = s.goals.filter(function (x) { return x !== g; }); persist(); rerenderStudent(s); };
-      if (g.history.length || g.text) confirmBox("Remove the goal “" + (g.text || "Untitled") + "”?", "Remove", doDel); else doDel();
+      var gName = "“" + (g.text || "Untitled goal") + "”";
+      if (nd) confirmTwice("Remove " + gName + "?",
+        "This removes the goal " + gName + " from " + (s.name || "this student") + ", along with its recorded results from " + nd + " day" + (nd === 1 ? "" : "s") + ". Export first if you need them.",
+        "Remove goal", "Removing " + gName + " and its results can’t be undone.", "Yes, remove it", doDel);
+      else if (g.text) confirmBox("Remove the goal " + gName + "?", "Remove", doDel);
+      else doDel();
     }
     else if (act === "del-student") {
-      confirmBox("Remove " + (s.name || "this student") + " and all of their goals?", "Remove", function () {
-        c.students = c.students.filter(function (x) { return x !== s; }); persist(); render();
+      var sName = s.name || "this student";
+      confirmTwice("Remove " + sName + "?",
+        "This removes " + sName + " from " + (c.title || "this class") + ", along with their " + s.goals.length + " goal" + (s.goals.length === 1 ? "" : "s") + " and all of their recorded results. Export first if you need them.",
+        "Remove student", "Removing " + sName + " and all of their data can’t be undone.", "Yes, remove " + (s.name || "student"), function () {
+        c.students = c.students.filter(function (x) { return x !== s; }); persist(); render(); toast((s.name || "Student") + " removed");
       });
     }
     else if (act === "class-left" || act === "class-right") {
@@ -377,21 +439,17 @@
       state.classes.splice(i0, 1); state.classes.splice(i1, 0, c); persist(); render();
     }
     else if (act === "del-class") {
-      confirmBox("Delete the class “" + (c.title || "Untitled") + "” with its " + c.students.length + " student(s) and their goals?", "Delete class", function () {
+      var cName = "“" + (c.title || "Untitled class") + "”";
+      confirmTwice("Delete " + cName + "?",
+        "This removes the class " + cName + " and all of its data: " + c.students.length + " student" + (c.students.length === 1 ? "" : "s") + ", their goals, and every recorded result and note. Export first if you need the results.",
+        "Delete class", "Deleting " + cName + " and all of its data can’t be undone.", "Yes, delete it", function () {
         var i0 = state.classes.indexOf(c);
         state.classes.splice(i0, 1);
-        if (!state.classes.length) state.classes.push(normClass({}, 0));
+        if (!state.classes.length) state.classes.push(normClass({}, 0, today()));
         state.activeClass = state.classes[Math.max(0, i0 - 1)].id;
         persist(); render(); toast("Class deleted");
       });
     }
-    else if (act === "copy-student") {
-      var t = toTSV(rowsFor(c, [s], state.includeHeader));
-      copyText(t).then(function (ok) { ok ? toast("Copied " + (s.name || "student") + " — paste into Sheets") : showTextModal("Copy results", t); });
-    }
-    else if (act === "export") openExport();
-    else if (act === "fresh") clearSession(true);
-    else if (act === "dismiss") { staleNotice = false; render(); }
   });
 
   $("#app").addEventListener("input", function (e) {
@@ -400,7 +458,7 @@
     if (!f) return;
     var s = findS(t.closest(".student").getAttribute("data-sid"));
     if (f === "name") s.name = t.value;
-    else if (f === "notes") s.notes = t.value;
+    else if (f === "notes") { if (t.value) s.notes[state.viewDate] = t.value; else delete s.notes[state.viewDate]; }
     else if (f === "goal") { var gid = t.closest(".goal").getAttribute("data-gid"); s.goals.find(function (x) { return x.id === gid; }).text = t.value; }
     persist();
   });
@@ -410,129 +468,130 @@
     var c = cur();
     var list = e.target.value.split(",").map(function (x) { return x.trim(); }).filter(Boolean);
     c.promptLevels = list.length ? list : DEFAULT_PROMPTS.slice();
-    c.students.forEach(function (s) { s.goals.forEach(function (g) { g.prompts = g.prompts.filter(function (p) { return c.promptLevels.indexOf(p) > -1; }); }); });
     persist(); render();
   });
 
-  $("#session-date").addEventListener("change", function (e) { state.date = e.target.value || today(); staleNotice = false; persist(); render(); });
+  $("#session-date").addEventListener("change", function (e) { state.viewDate = e.target.value || today(); render(); });
   $("#btn-edit").addEventListener("click", function () { editMode = !editMode; render(); });
-  $("#btn-new").addEventListener("click", function () {
-    var c = cur();
-    openModal('<h2>Start a new session?</h2><p>Clears the +/− taps, prompting and notes. Students and goals stay.</p>' +
-      '<div class="row"><button class="btn" data-close>Cancel</button>' +
-      (state.classes.length > 1 ? '<button class="btn" id="n-all">Clear all classes</button>' : "") +
-      '<button class="btn primary" id="n-one">Clear ' + esc(c.title || "this class") + '</button></div>');
-    $("#n-one").addEventListener("click", function () { closeModal(); clearSession(false); });
-    var na = $("#n-all"); if (na) na.addEventListener("click", function () { closeModal(); clearSession(true); });
-  });
   $("#btn-export").addEventListener("click", openExport);
   $("#btn-save").addEventListener("click", openSave);
+  $("#btn-clear").addEventListener("click", openClear);
 
-  function clearSession(all) {
-    (all ? state.classes : [cur()]).forEach(function (c) {
-      c.students.forEach(function (s) { s.notes = ""; s.goals.forEach(function (g) { g.history = []; g.prompts = []; }); });
-    });
-    state.date = today(); staleNotice = false; persist(); render();
-    toast(all ? "New session started for all classes" : "New session started for " + (cur().title || "this class"));
+  // Clear every recorded result (all classes, all days). Students, goals and classes stay.
+  function openClear() {
+    var rows = allRows(), unexp = rows.filter(isNew).length;
+    if (!rows.length) { toast("Nothing to clear — no results recorded"); return; }
+    confirmTwice("Clear all results?",
+      "This erases every recorded tap, prompting choice and note — " + rows.length + " row" + (rows.length === 1 ? "" : "s") + " from " + dateRange(rows) + ", across all classes. Your classes, students and goals stay.",
+      "Clear results",
+      "Clearing all results can’t be undone." + (unexp ? " " + unexp + " row" + (unexp === 1 ? " hasn’t" : "s haven’t") + " been exported." : ""),
+      "Yes, clear everything",
+      function () {
+        state.classes.forEach(function (c) { c.students.forEach(function (s) { s.notes = {}; s.goals.forEach(function (g) { g.days = {}; }); }); });
+        state.exported = {}; state.viewDate = today();
+        persist(); render(); toast("All results cleared — ready for a fresh start");
+      },
+      unexp ? '<p class="alert">⚠ ' + unexp + ' of these row' + (unexp === 1 ? " hasn’t" : "s haven’t") + ' been exported yet. Export first so you don’t lose them.</p>' : "",
+      unexp ? { label: "Go to Export", fn: openExport } : null);
   }
 
   // ---------- export ----------
-  function rowsFor(c, students, header) {
-    var rows = [];
-    students.forEach(function (s) {
-      s.goals.forEach(function (g) {
-        var n = count(g), pc = pctOf(n);
-        rows.push([state.date, c.title, s.name, g.text, n.p, n.m, n.t, pc == null ? "" : pc + "%", g.prompts.join(", "),
-          g.history.map(function (x) { return x ? "✓" : "✗"; }).join(""), s.notes]);
-      });
-    });
-    return header ? [HEAD].concat(rows) : rows;
+  function tsvCell(v, i) {
+    if (i === 6) return v == null ? "" : Math.round(v * 100) + "%";
+    v = String(v == null ? "" : v).replace(/[\t\r\n]+/g, " ");
+    return /^[=+\-@]/.test(v) ? "'" + v : v;
   }
-  function exportRows() {
-    var list = state.exportScope === "all" ? state.classes : [cur()];
-    var rows = [];
-    list.forEach(function (c) { rows = rows.concat(rowsFor(c, c.students, false)); });
-    return state.includeHeader ? [HEAD].concat(rows) : rows;
+  function toTSV(rows) {
+    var lines = rows.map(function (r) { return r.cells.map(tsvCell).join("\t"); });
+    if (state.includeHeader) lines.unshift(HEAD.join("\t"));
+    return lines.join("\n");
   }
-  function safeCell(v) { v = String(v == null ? "" : v).replace(/[\t\r\n]+/g, " "); return /^[=+\-@]/.test(v) ? "'" + v : v; }
-  function toTSV(rows) { return rows.map(function (r) { return r.map(safeCell).join("\t"); }).join("\n"); }
-  function toCSV(rows) {
-    return "﻿" + rows.map(function (r) {
-      return r.map(function (v) { v = String(v == null ? "" : v).replace(/\r?\n/g, " "); return /[",]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(",");
-    }).join("\r\n");
+  function dateRange(rows) {
+    if (!rows.length) return "";
+    var a = rows[0].date, b = rows[rows.length - 1].date;
+    return a === b ? fmtDate(a) : fmtDate(a) + " – " + fmtDate(b);
+  }
+  function markExported(rows) {
+    rows.forEach(function (r) { state.exported[r.key] = r.sig; });
+    state.lastExport = new Date().toISOString(); persist(true);
   }
 
   function openExport() {
-    var c = cur();
-    openModal('<h2>Export results — ' + esc(fmtDate(state.date)) + '</h2>' +
-      '<div class="seg" id="x-scope"><button data-scope="class" aria-pressed="' + (state.exportScope === "class") + '">' + esc(c.title || "This class") + '</button>' +
-      '<button data-scope="all" aria-pressed="' + (state.exportScope === "all") + '">All classes</button></div>' +
+    openModal('<h2>Export results</h2>' +
+      '<div class="seg" id="x-view"><button data-view="new">New since last export</button><button data-view="all">Everything</button></div>' +
       '<p id="x-sum"></p>' +
-      '<div class="x-sec"><h3>Excel workbook (.xlsx)</h3>' +
-      '<p>Opens in Excel, or in Google Sheets (drag it into Google Drive and open it, or use File → Import → Upload).</p>' +
-      '<span class="x-lbl">One tab per</span><div class="seg" id="x-split"><button data-split="class">Class</button><button data-split="student">Student</button></div>' +
-      '<p id="x-xsum" style="margin-top:4px"></p>' +
-      '<div class="row" id="x-xrow"></div></div>' +
-      '<div class="x-sec"><h3>Copy &amp; paste / CSV</h3>' +
-      '<p>In Google Sheets, click a cell and paste — each value lands in its own column. Each student card also has its own “Copy results” button.</p>' +
-      '<label class="chk"><input type="checkbox" id="x-head"' + (state.includeHeader ? " checked" : "") + '> Include header row</label>' +
+      '<div class="x-sec"><h3>1 · Copy &amp; paste into your spreadsheet</h3>' +
+      '<p>Copy, then in Google Sheets tap the first empty cell under your data and paste. Each value lands in its own column.</p>' +
+      '<label class="chk"><input type="checkbox" id="x-head"' + (state.includeHeader ? " checked" : "") + '> Include column titles (only needed the first time)</label>' +
       '<textarea id="x-text" readonly></textarea>' +
-      '<div class="row"><button class="btn primary" id="x-copy">Copy for Google Sheets</button></div>' +
-      '<div class="row" id="x-crow"></div></div>' +
+      '<div class="row"><button class="btn primary" id="x-copy">Copy</button></div></div>' +
+      '<div class="x-sec"><h3>2 · Save as a spreadsheet file</h3>' +
+      '<p>Saves an Excel file on this device. It opens in Google Sheets or Excel, and you can copy the rows from there.</p>' +
+      '<div class="row" id="x-xrow"></div></div>' +
+      '<div class="x-sec"><h3>3 · Send to Google Sheet</h3>' +
+      '<p>Adds the rows straight to your Google Sheet — no copying.</p>' +
+      '<div class="row"><button class="btn" id="x-send">Send to Google Sheet</button></div></div>' +
+      '<div class="x-sec"><h3>4 · Clear results when you’re done</h3>' +
+      '<p id="x-clean-txt"></p>' +
+      '<div class="row"><button class="btn danger" id="x-clear">Clear all results</button></div></div>' +
       '<div class="row" style="margin-top:18px"><button class="btn" data-close>Close</button></div>');
-    var xlsxName = function () { return (state.exportScope === "all" ? "slp-all-classes" : (slug(cur().title) || "slp-session")) + "-by-" + state.xlsxSplit + "-" + state.date + ".xlsx"; };
-    var csvName = function () { return (state.exportScope === "all" ? "slp-all-classes" : (slug(cur().title) || "slp-session")) + "-" + state.date + ".csv"; };
-    var xFA = fileActions($("#x-xrow"), xlsxName, function () { return buildXlsx(workbookSheets()); }, "Download Excel");
-    var cFA = fileActions($("#x-crow"), csvName, function () { return new Blob([toCSV(exportRows())], { type: "text/csv" }); }, "Download CSV");
-    var fill = function () {
-      var list = state.exportScope === "all" ? state.classes : [cur()], st = 0, gl = 0, tr = 0;
-      list.forEach(function (k) { st += k.students.length; k.students.forEach(function (s) { gl += s.goals.length; s.goals.forEach(function (g) { tr += g.history.length; }); }); });
-      $("#x-sum").textContent = st + " students · " + gl + " goals · " + tr + " trials";
-      var tabs = workbookSheets().map(function (w) { return w.name; });
-      $("#x-xsum").textContent = tabs.length + " tab" + (tabs.length === 1 ? "" : "s") + ": " + tabs.join(", ");
-      $("#x-text").value = toTSV(exportRows());
-      Array.prototype.forEach.call(document.querySelectorAll("#x-scope button"), function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-scope") === state.exportScope); });
-      Array.prototype.forEach.call(document.querySelectorAll("#x-split button"), function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-split") === state.xlsxSplit); });
-      xFA.refresh(); cFA.refresh();
-    };
+
+    var rows = [];
+    var xFA = fileActions($("#x-xrow"),
+      function () { return "slp-results-" + (rows.length ? rows[0].date + (rows[0].date !== rows[rows.length - 1].date ? "-to-" + rows[rows.length - 1].date : "") : today()) + ".xlsx"; },
+      function () { return buildXlsx([{ name: "Results", rows: rows.map(xlCells) }]); }, "Save spreadsheet",
+      function () { markExported(rows); fillStatus("✓ Saved. These rows are now marked as exported."); });
+
+    function fillStatus(msg) {
+      var all = allRows(), fresh = all.filter(isNew), upd = fresh.filter(wasUpdated).length;
+      $("#x-view").querySelectorAll("button").forEach(function (b) {
+        var n = b.getAttribute("data-view") === "all" ? all.length : fresh.length;
+        b.textContent = (b.getAttribute("data-view") === "all" ? "Everything" : "New since last export") + " (" + n + ")";
+        b.setAttribute("aria-pressed", b.getAttribute("data-view") === state.exportView);
+      });
+      var sum = rows.length ? rows.length + " row" + (rows.length === 1 ? "" : "s") + " · " + dateRange(rows) : (state.exportView === "new" ? "Nothing new since your last export." : "No results recorded yet.");
+      if (state.exportView === "new" && upd) sum += " · " + upd + " changed after you exported " + (upd === 1 ? "it" : "them") + " — delete the old " + (upd === 1 ? "row" : "rows") + " for that day in your sheet after pasting.";
+      if (state.lastExport) sum += " Last export: " + fmtTime(state.lastExport) + ".";
+      $("#x-sum").textContent = (msg ? msg + " " : "") + sum;
+      $("#x-clean-txt").textContent = all.length
+        ? "Once the results are in your spreadsheet, clear them so the tool starts fresh and nothing gets pasted twice. Students and goals stay." +
+          (fresh.length ? " (" + fresh.length + " row" + (fresh.length === 1 ? " hasn’t" : "s haven’t") + " been exported yet.)" : "")
+        : "Nothing to clear — no results recorded.";
+      $("#x-clear").disabled = !all.length;
+    }
+    function fill() {
+      var all = allRows();
+      rows = state.exportView === "all" ? all : all.filter(isNew);
+      $("#x-text").value = toTSV(rows);
+      fillStatus(); xFA.refresh();
+    }
     fill();
-    $("#x-scope").addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; state.exportScope = b.getAttribute("data-scope"); persist(); fill(); });
-    $("#x-split").addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; state.xlsxSplit = b.getAttribute("data-split"); persist(); fill(); });
-    $("#x-head").addEventListener("change", function (e) { state.includeHeader = e.target.checked; persist(); fill(); });
+
+    $("#x-view").addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; state.exportView = b.getAttribute("data-view"); persist(true); fill(); });
+    $("#x-head").addEventListener("change", function (e) { state.includeHeader = e.target.checked; persist(true); $("#x-text").value = toTSV(rows); });
     $("#x-copy").addEventListener("click", function () {
-      var t = $("#x-text").value;
-      copyText(t).then(function (ok) { if (ok) toast("Copied — paste into Google Sheets"); else { var ta = $("#x-text"); ta.focus(); ta.select(); toast("Select all & copy from the box"); } });
+      if (!rows.length) { toast("Nothing to copy"); return; }
+      copyText($("#x-text").value).then(function (ok) {
+        if (ok) { markExported(rows); fillStatus("✓ Copied — now paste into your spreadsheet."); toast("Copied — paste into Google Sheets"); }
+        else { var ta = $("#x-text"); ta.focus(); ta.select(); toast("Select all & copy from the box"); }
+      });
     });
+    $("#x-send").addEventListener("click", function () {
+      openModal('<h2>Not added yet</h2><p>Sending straight to Google Sheets is coming soon. For now, use Copy or Save spreadsheet.</p>' +
+        '<div class="row"><button class="btn primary" id="ns-back">Back to export</button></div>');
+      $("#ns-back").addEventListener("click", openExport);
+    });
+    $("#x-clear").addEventListener("click", openClear);
   }
 
-  // ---------- Excel (.xlsx) export, built in the page — no internet needed ----------
+  // ---------- Excel (.xlsx), built in the page — no internet needed ----------
   function dateSerial(iso) { var p = (iso || "").split("-"); if (p.length !== 3) return null; return (Date.UTC(+p[0], +p[1] - 1, +p[2]) - Date.UTC(1899, 11, 30)) / 86400000; }
-  function xlRows(c, s) {
-    return s.goals.map(function (g) {
-      var n = count(g), ds = dateSerial(state.date);
-      return [ds == null ? state.date : { d: ds }, c.title, s.name, g.text, n.p, n.m, n.t, n.t ? { pct: n.p / n.t } : "",
-        g.prompts.join(", "), g.history.map(function (x) { return x ? "✓" : "✗"; }).join(""), s.notes];
+  function xlCells(r) {
+    return r.cells.map(function (v, i) {
+      if (i === 0) { var ds = dateSerial(v); return ds == null ? v : { d: ds }; }
+      if (i === 6) return v == null ? "" : { pct: v };
+      return v;
     });
-  }
-  function workbookSheets() {
-    var list = state.exportScope === "all" ? state.classes : [cur()], sheets = [], used = {};
-    function nameFor(raw, fallback) {
-      var n = String(raw || "").replace(/[\[\]:*?\/\\]/g, "-").replace(/^'+|'+$/g, "").trim() || fallback;
-      n = n.slice(0, 31); var base = n, i = 2;
-      while (used[n.toLowerCase()]) { var suf = " (" + i++ + ")"; n = base.slice(0, 31 - suf.length) + suf; }
-      used[n.toLowerCase()] = 1; return n;
-    }
-    if (state.xlsxSplit === "class") {
-      list.forEach(function (c, i) {
-        var rows = []; c.students.forEach(function (s) { rows = rows.concat(xlRows(c, s)); });
-        sheets.push({ name: nameFor(c.title, "Class " + (i + 1)), rows: rows });
-      });
-    } else {
-      var k = 0;
-      list.forEach(function (c) { c.students.forEach(function (s) { k++; sheets.push({ name: nameFor(s.name, "Student " + k), rows: xlRows(c, s) }); }); });
-    }
-    if (!sheets.length) sheets.push({ name: "Results", rows: [] });
-    return sheets;
   }
   function xmlEsc(s) { return String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
   function colName(i) { var s = ""; i++; while (i) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
@@ -565,7 +624,6 @@
     var NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"', X = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
     var sst = [], sstIdx = new Map(), sstCount = 0;
     function si(v) { sstCount++; if (!sstIdx.has(v)) { sstIdx.set(v, sst.length); sst.push(v); } return sstIdx.get(v); }
-    var widths = [12, 18, 18, 34, 12, 13, 12, 10, 24, 18, 36];
     var files = [];
     sheets.forEach(function (sh, n) {
       var all = [HEAD].concat(sh.rows), xml = "";
@@ -583,7 +641,7 @@
       });
       files.push({ name: "xl/worksheets/sheet" + (n + 1) + ".xml", data: X + '<worksheet ' + NS + '>' +
         '<sheetViews><sheetView workbookViewId="0"' + (n === 0 ? ' tabSelected="1"' : '') + '><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
-        '<cols>' + widths.map(function (w, i) { return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>'; }).join("") + '</cols>' +
+        '<cols>' + WIDTHS.map(function (w, i) { return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>'; }).join("") + '</cols>' +
         '<sheetData>' + xml + '</sheetData></worksheet>' });
     });
     var R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
@@ -618,48 +676,104 @@
     return zipBlob(files, CT + "sheet");
   }
 
-  // ---------- save as new HTML ----------
+  function fmtTime(iso) { try { var d = new Date(iso); return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " at " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); } catch (e) { return iso; } }
+
+  // ---------- configuration: classes, students, goals & prompting buttons (no results) ----------
+  function configData() {
+    return {
+      app: "slp-session-tracker", type: "configuration", version: 1, savedAt: new Date().toISOString(),
+      classes: state.classes.map(function (c) {
+        return { id: c.id, title: c.title, promptLevels: c.promptLevels,
+          students: c.students.map(function (s) { return { id: s.id, name: s.name, goals: s.goals.map(function (g) { return { id: g.id, text: g.text }; }) }; }) };
+      })
+    };
+  }
+  function configSummary(cfg) {
+    var nS = 0, nG = 0;
+    cfg.classes.forEach(function (c) { (c.students || []).forEach(function (s) { nS++; nG += (s.goals || []).length; }); });
+    return cfg.classes.length + " class" + (cfg.classes.length === 1 ? "" : "es") + ", " + nS + " student" + (nS === 1 ? "" : "s") + ", " + nG + " goal" + (nG === 1 ? "" : "s");
+  }
+  // Loads a configuration. Results already recorded here are kept for any student and goal that's in the file.
+  function applyConfig(cfg) {
+    var oldS = {}, oldG = {};
+    state.classes.forEach(function (c) { c.students.forEach(function (s) { oldS[s.id] = s; s.goals.forEach(function (g) { oldG[g.id] = g; }); }); });
+    var classes = cfg.classes.map(function (c, i) {
+      var nc = normClass({ id: c.id, title: c.title, promptLevels: c.promptLevels,
+        students: (c.students || []).map(function (s) { return { id: s.id, name: s.name, goals: (s.goals || []).map(function (g) { return { id: g.id, text: g.text }; }) }; }) }, i, today());
+      nc.students.forEach(function (s) {
+        if (oldS[s.id]) s.notes = oldS[s.id].notes;
+        s.goals.forEach(function (g) { if (oldG[g.id]) g.days = oldG[g.id].days; });
+      });
+      return nc;
+    });
+    if (!classes.length) classes = [normClass({}, 0, today())];
+    state.classes = classes; state.activeClass = classes[0].id;
+    editMode = false; persist(); render();
+  }
+  function readConfigFile(file) {
+    var fr = new FileReader();
+    fr.onload = function () {
+      var cfg; try { cfg = JSON.parse(fr.result); } catch (e) { cfg = null; }
+      if (!cfg || !Array.isArray(cfg.classes)) { toast("That file isn’t a tracker configuration"); return; }
+      var ids = {};
+      cfg.classes.forEach(function (c) { (c.students || []).forEach(function (s) { ids[s.id] = 1; (s.goals || []).forEach(function (g) { ids[g.id] = 1; }); }); });
+      var lost = allRows().filter(function (r) { return !ids[r.s.id] || (r.g && !ids[r.g.id]); }).length;
+      var msg = "This sets up the tool with " + configSummary(cfg) + (cfg.savedAt ? " (saved " + fmtTime(cfg.savedAt) + ")" : "") + ", replacing the classes and students on screen now.";
+      if (!lost) { confirmBox(msg + (allRows().length ? " Your recorded results are kept." : ""), "Load configuration", function () { applyConfig(cfg); toast("Configuration loaded"); }); return; }
+      confirmTwice("Load this configuration?", msg + " Results for students or goals that aren’t in this file will be deleted.",
+        "Load configuration", lost + " recorded row" + (lost === 1 ? " belongs" : "s belong") + " to students or goals that aren’t in this file and will be deleted. This can’t be undone.",
+        "Yes, load it", function () { applyConfig(cfg); toast("Configuration loaded"); },
+        '<p class="alert">⚠ ' + lost + ' recorded row' + (lost === 1 ? "" : "s") + ' would be lost. Export first if you need them.</p>', { label: "Go to Export", fn: openExport });
+    };
+    fr.readAsText(file);
+  }
+
+  // A copy of this whole tool with the current classes built in (optional).
   function buildTemplateHTML() {
-    var data = { classes: state.classes.map(function (c) {
-      return { title: c.title, promptLevels: c.promptLevels,
-        students: c.students.map(function (s) { return { name: s.name, goals: s.goals.map(function (g) { return { text: g.text }; }) }; }) };
-    }) };
+    var data = configData();
     var clone = document.documentElement.cloneNode(true);
     $("#app", clone).innerHTML = "";
     $("#tabs", clone).innerHTML = "";
     $("#modal-root", clone).innerHTML = "";
     $("#toast", clone).className = "toast";
+    $("#btn-export", clone).textContent = "Export results";
     $("#roster-data", clone).textContent = JSON.stringify(data).replace(/</g, "\\u003c");
     clone.removeAttribute("data-theme");
-    var b = $("body", clone); if (b) b.removeAttribute("class");
     return "<!DOCTYPE html>\n" + clone.outerHTML;
   }
+
   function openSave() {
-    var def = "slp-tracker-my-classes.html";
-    var nS = state.classes.reduce(function (a, c) { return a + c.students.length; }, 0);
-    openModal('<h2>Save as a new HTML file</h2>' +
-      '<p>Saves all ' + state.classes.length + ' class' + (state.classes.length === 1 ? "" : "es") + ' (' + nS + ' students) with their goals and prompting buttons into a fresh copy of this tool. Scores and notes are left blank, so it opens ready for your next session.</p>' +
-      '<label class="muted" style="font-size:13px">File name</label><input id="s-name" value="' + esc(def) + '">' +
-      '<p style="margin-top:10px">On iPhone/iPad, “Share / Save to Files” is usually the most reliable. If nothing works in your viewer, copy the code and paste it into a new .html file.</p>' +
-      '<div class="row" id="s-row"></div>' +
-      '<div class="row"><button class="btn" data-close>Cancel</button><button class="btn" id="s-copy">Copy HTML code</button></div>');
-    var sName = function () { var n = $("#s-name").value.trim() || def; return /\.html?$/i.test(n) ? n : n + ".html"; };
-    var sFA = fileActions($("#s-row"), sName, function () { return new Blob([buildTemplateHTML()], { type: "text/html" }); }, "Download HTML");
-    sFA.refresh();
-    $("#s-name").addEventListener("change", sFA.refresh);
-    $("#s-copy").addEventListener("click", function () {
-      var t = buildTemplateHTML();
-      copyText(t).then(function (ok) { ok ? toast("HTML copied") : showTextModal("HTML code", t); });
-    });
+    var day = today();
+    openModal('<h2>Configuration</h2>' +
+      '<p>Your configuration is your setup — classes, students, goals and prompting buttons. It doesn’t include any results. Keep the file somewhere safe (it has student names), and load it into any new version of this tool, on any device.</p>' +
+      '<div class="x-sec"><h3>Save configuration</h3>' +
+      '<p>' + esc(configSummary(configData())) + '. Save a new copy whenever you add or change students or goals.</p>' +
+      '<div class="row" id="cf-row"></div></div>' +
+      '<div class="x-sec"><h3>Load configuration</h3>' +
+      '<p>Pick a configuration file you saved earlier — for example after opening an updated version of this tool.</p>' +
+      '<input type="file" id="cf-file" accept=".json,application/json,text/plain"></div>' +
+      '<div class="x-sec"><h3>Save a copy of the tool (optional)</h3>' +
+      '<p>A copy of this page with your classes and students already built in, so it opens set up. Results are left out.</p>' +
+      '<div class="row" id="ht-row"></div></div>' +
+      '<div class="row" style="margin-top:18px"><button class="btn" data-close>Close</button></div>');
+    fileActions($("#cf-row"), function () { return "slp-configuration-" + day + ".json"; },
+      function () { return new Blob([JSON.stringify(configData(), null, 2)], { type: "application/json" }); }, "Save configuration").refresh();
+    fileActions($("#ht-row"), function () { return "slp-tracker-" + day + ".html"; },
+      function () { return new Blob([buildTemplateHTML()], { type: "text/html" }); }, "Save HTML copy").refresh();
+    $("#cf-file").addEventListener("change", function (e) { var f = e.target.files && e.target.files[0]; if (f) readConfigFile(f); });
   }
 
-  // ---------- helpers ----------
-  // Three ways to get a file out, because in-app viewers (like Documents by Readdle) often block normal downloads:
-  // 1) the iPhone/iPad share sheet (Save to Files, Google Sheets, Mail…), 2) a normal download, 3) a plain link you tap yourself.
+  // ---------- getting files out: share sheet, download, or a plain link ----------
   var SHARE_OK = (function () {
     try { return !!(navigator.share && navigator.canShare && navigator.canShare({ files: [new File(["x"], "x.txt", { type: "text/plain" })] })); } catch (e) { return false; }
   })();
-  function fileActions(el, getName, makeBlob, label) {
+  function mimeFor(name) {
+    if (/\.xlsx$/i.test(name)) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    if (/\.json$/i.test(name)) return "application/json";
+    if (/\.html?$/i.test(name)) return "text/html";
+    return "application/octet-stream";
+  }
+  function fileActions(el, getName, makeBlob, label, onSaved) {
     el.innerHTML = (SHARE_OK ? '<button class="btn" data-fa="share">Share / Save to Files</button>' : "") +
       '<button class="btn primary" data-fa="dl">' + esc(label) + '</button>' +
       '<div class="fa-alt">Didn’t download? <a data-fa="link" href="#">Tap this link instead</a></div>';
@@ -669,26 +783,22 @@
       var k = b.getAttribute("data-fa"), name = getName();
       if (k === "share") {
         var f = new File([makeBlob()], name, { type: mimeFor(name) });
-        navigator.share({ files: [f], title: name }).catch(function (err) { if (!err || err.name !== "AbortError") toast("Sharing isn’t available here — try the link"); });
-      } else if (k === "dl") { downloadBlob(name, makeBlob()); toast("Downloading " + name); }
-      else if (k === "link" && link.getAttribute("href") === "#") { e.preventDefault(); toast("One moment — preparing the file"); }
+        navigator.share({ files: [f], title: name }).then(function () { if (onSaved) onSaved(); }).catch(function (err) { if (!err || err.name !== "AbortError") toast("Sharing isn’t available here — try the link"); });
+      } else if (k === "dl") { downloadBlob(name, makeBlob()); toast("Downloading " + name); if (onSaved) onSaved(); }
+      else if (k === "link") {
+        if (link.getAttribute("href") === "#") { e.preventDefault(); toast("One moment — preparing the file"); }
+        else if (onSaved) onSaved();
+      }
     });
     return {
       refresh: function () {
-        var name = getName(); link.setAttribute("download", name);
+        var name = getName(); link.setAttribute("download", name); link.setAttribute("href", "#");
         var fr = new FileReader(), blob = new Blob([makeBlob()], { type: mimeFor(name) });
         fr.onload = function () { link.setAttribute("href", fr.result); };
         fr.readAsDataURL(blob);
       }
     };
   }
-  function mimeFor(name) {
-    if (/\.xlsx$/i.test(name)) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-    if (/\.csv$/i.test(name)) return "text/csv";
-    if (/\.html?$/i.test(name)) return "text/html";
-    return "application/octet-stream";
-  }
-  function download(name, text, type) { downloadBlob(name, new Blob([text], { type: type })); }
   function downloadBlob(name, blob) {
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click();
@@ -711,16 +821,28 @@
     root.querySelector(".modal-back").addEventListener("click", function (e) { if (e.target.classList.contains("modal-back") || e.target.hasAttribute("data-close")) closeModal(); });
   }
   function closeModal() { $("#modal-root").innerHTML = ""; }
+  // Two-step confirmation for anything that deletes recorded data.
+  function confirmTwice(title, msg, okLabel, msg2, okLabel2, onOk, extraHTML, altBtn) {
+    openModal('<h2>' + esc(title) + '</h2><p>' + esc(msg) + '</p>' + (extraHTML || "") +
+      '<div class="row"><button class="btn" data-close>Cancel</button>' +
+      (altBtn ? '<button class="btn" id="c-alt">' + esc(altBtn.label) + '</button>' : "") +
+      '<button class="btn danger-fill" id="c-ok">' + esc(okLabel) + '</button></div>');
+    if (altBtn) $("#c-alt").addEventListener("click", altBtn.fn);
+    $("#c-ok").addEventListener("click", function () {
+      openModal('<h2 class="warn">Are you sure?</h2><p>' + esc(msg2) + '</p>' +
+        '<div class="row"><button class="btn" data-close>No, keep it</button><button class="btn danger-fill" id="c-ok2">' + esc(okLabel2) + '</button></div>');
+      $("#c-ok2").addEventListener("click", function () { closeModal(); onOk(); });
+    });
+  }
   function confirmBox(msg, okLabel, onOk) {
     openModal('<h2>Are you sure?</h2><p>' + esc(msg) + '</p><div class="row"><button class="btn" data-close>Cancel</button><button class="btn primary" id="c-ok">' + esc(okLabel) + '</button></div>');
     $("#c-ok").addEventListener("click", function () { closeModal(); onOk(); });
   }
-  function showTextModal(title, text) {
-    openModal('<h2>' + esc(title) + '</h2><p>Copying was blocked here — select everything in the box and copy it.</p><textarea id="t-box" readonly></textarea><div class="row"><button class="btn primary" data-close>Done</button></div>');
-    var ta = $("#t-box"); ta.value = text; ta.focus(); ta.select();
-  }
   var toastTimer;
   function toast(msg) { var t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2200); }
+
+  // keep "today" right if the page stays open past midnight
+  document.addEventListener("visibilitychange", function () { if (!document.hidden && state.viewDate < today() && !document.querySelector(".notice")) { state.viewDate = today(); render(); } });
 
   render();
 })();

@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+  :root { --bar-space: 70px; }
+  html { height: 100vh; height: 100lvh; overflow: hidden; }
+  body {
+    position: fixed; left: 0; right: 0; top: var(--bar-space);
+    height: calc(100vh - var(--bar-space));
+    height: calc(100lvh - var(--bar-space));
+    margin: 0; overflow: auto; overscroll-behavior: none;
+  }
+</style>
+<title>SLP Session Tracker</title>
+<style>
+  :root {
+    --bg:#f5f6f8; --card:#ffffff; --ink:#1d2530; --muted:#6b7585; --line:#e2e6eb;
+    --accent:#2f7d78; --accent-ink:#ffffff; --accent-soft:#e4f1f0;
+    --plus:#23804f; --plus-bg:#e5f4eb; --minus:#c0453c; --minus-bg:#fbeceb;
+    --chip:#eef1f4; --mid:#a86a10; --mid-bg:#fbf1df;
+    --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 4px rgba(16,24,40,.07);
+  }
+  html[data-theme="dark"] {
+    --bg:#11151a; --card:#1a2028; --ink:#e7ebf0; --muted:#97a1b0; --line:#2a323c;
+    --accent:#52b5ad; --accent-ink:#0c1a19; --accent-soft:#183331;
+    --plus:#5fcb8d; --plus-bg:#163325; --minus:#f07d74; --minus-bg:#3a1f1d;
+    --chip:#242b34; --mid:#e7b45c; --mid-bg:#352a17;
+    --shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+  html { background:var(--bg); color-scheme:light; }
+  html[data-theme="dark"] { color-scheme:dark; }
+  body { background:var(--bg); color:var(--ink); font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; -webkit-tap-highlight-color:transparent; }
+  * { box-sizing:border-box; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  input, textarea { font:inherit; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:8px; padding:7px 9px; width:100%; }
+  input:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:-1px; border-color:transparent; }
+  .muted { color:var(--muted); }
+
+  /* Top bar */
+  .topbar { position:sticky; top:0; z-index:20; background:var(--bg); border-bottom:1px solid var(--line); padding:10px 14px 0; }
+  .tb-row { display:flex; align-items:center; gap:12px; }
+  .tb-title { flex:1; min-width:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .tb-title h1 { font-size:18px; margin:0; white-space:nowrap; }
+  .tb-title input[type=date] { width:auto; padding:4px 8px; font-size:14px; }
+  .theme-toggle { width:38px; height:38px; flex:0 0 38px; border-radius:50%; border:1px solid var(--line); background:var(--card); font-size:17px; display:grid; place-items:center; }
+  .tb-actions { display:flex; gap:8px; margin-top:10px; overflow-x:auto; scrollbar-width:none; }
+  .tb-actions::-webkit-scrollbar, .tabs::-webkit-scrollbar { display:none; }
+  .btn { border:1px solid var(--line); background:var(--card); border-radius:999px; padding:7px 14px; white-space:nowrap; font-size:14px; }
+  .btn.primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
+  .btn.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); font-weight:600; }
+  .btn.small { padding:5px 11px; font-size:13px; }
+  .btn.danger { color:var(--minus); }
+  .btn.danger-fill { background:var(--minus); border-color:var(--minus); color:#fff; font-weight:600; }
+  .modal h2.warn { color:var(--minus); }
+  .modal p.alert { color:var(--minus); font-weight:600; }
+  .btn:disabled { opacity:.4; cursor:default; }
+
+  /* Class tabs */
+  .tabs { display:flex; gap:2px; margin-top:10px; overflow-x:auto; scrollbar-width:none; }
+  .tab { border:none; background:transparent; padding:9px 14px 10px; border-bottom:3px solid transparent; white-space:nowrap; color:var(--muted); font-size:14.5px; font-weight:500; display:flex; align-items:center; gap:7px; }
+  .tab .cnt { font-size:11.5px; background:var(--chip); color:var(--muted); border-radius:999px; padding:1px 7px; font-weight:600; }
+  .tab[aria-selected="true"] { color:var(--accent); border-bottom-color:var(--accent); font-weight:700; }
+  .tab[aria-selected="true"] .cnt { background:var(--accent-soft); color:var(--accent); }
+  .tab.add { color:var(--accent); font-weight:600; }
+
+  main { padding:14px; max-width:1200px; margin:0 auto; padding-bottom:60px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:14px; box-shadow:var(--shadow); }
+  .settings { display:grid; grid-template-columns:1fr 1.4fr; gap:12px; }
+  .settings label { font-size:13px; color:var(--muted); display:block; }
+  .settings input { margin-top:4px; }
+  .settings .s-row { grid-column:1 / -1; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .settings .s-row .sp { flex:1; }
+  .notice { background:var(--mid-bg); border:1px solid var(--mid); color:var(--ink); border-radius:12px; padding:10px 14px; margin-bottom:14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .notice span { flex:1; min-width:200px; }
+  .empty { text-align:center; padding:36px 16px; }
+  .empty h2 { margin:0 0 6px; font-size:18px; }
+
+  /* Student card */
+  .student { background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); margin-bottom:14px; display:grid; grid-template-columns:220px 1fr; overflow:hidden; }
+  .s-head { padding:14px; border-right:1px solid var(--line); display:flex; flex-direction:column; gap:8px; background:linear-gradient(var(--accent-soft),transparent 120px); }
+  .s-name { font-size:17px; margin:0; word-break:break-word; }
+  .s-meta { font-size:13px; color:var(--muted); }
+  .s-head textarea { resize:vertical; min-height:54px; font-size:14px; }
+  .s-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .goals { padding:4px 14px 10px; min-width:0; }
+  .goals > .muted { padding:14px 0; margin:0; }
+
+  /* Goal row: goal | +/- | % | prompting */
+  .goal { display:grid; grid-template-columns:minmax(150px,1.2fr) 220px 82px minmax(200px,1.6fr) 32px; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
+  .goal:last-of-type { border-bottom:none; }
+  .g-text { font-weight:500; word-break:break-word; }
+  .g-trials { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .tbtn { width:46px; height:46px; border-radius:12px; border:1.5px solid; font-size:24px; font-weight:700; line-height:1; display:grid; place-items:center; touch-action:manipulation; user-select:none; }
+  .tbtn.plus { color:var(--plus); background:var(--plus-bg); border-color:var(--plus); }
+  .tbtn.minus { color:var(--minus); background:var(--minus-bg); border-color:var(--minus); }
+  .tbtn:active { transform:scale(.94); }
+  .tbtn.undo { width:34px; height:34px; font-size:17px; border-radius:50%; border:1px solid var(--line); background:transparent; color:var(--muted); font-weight:400; }
+  .tbtn.undo:disabled { opacity:.35; cursor:default; }
+  .tally { min-width:54px; text-align:center; font-variant-numeric:tabular-nums; font-size:15px; }
+  .tally .p { color:var(--plus); font-weight:700; }
+  .tally .m { color:var(--minus); font-weight:700; }
+  .tally .sep { margin:0 4px; }
+  .x-sec { border-top:1px solid var(--line); margin-top:16px; padding-top:12px; }
+  .x-sec h3 { margin:0 0 4px; font-size:15px; }
+  .x-lbl { font-size:13px; color:var(--muted); margin-right:6px; }
+  .badge { background:var(--minus); color:#fff; border-radius:999px; font-size:11px; font-weight:700; padding:1px 6px; margin-left:6px; vertical-align:1px; }
+  .badge[hidden] { display:none; }
+  .fa-alt { width:100%; text-align:right; font-size:13px; color:var(--muted); }
+  .fa-alt a { color:var(--accent); font-weight:600; }
+  .seq { width:100%; display:flex; flex-wrap:wrap; gap:3px; min-height:8px; }
+  .seq i { width:8px; height:8px; border-radius:50%; display:block; }
+  .seq i.y { background:var(--plus); }
+  .seq i.n { background:var(--minus); }
+  .g-pct { text-align:center; border-radius:10px; padding:6px 4px; background:var(--chip); }
+  .g-pct b { display:block; font-size:20px; font-variant-numeric:tabular-nums; }
+  .g-pct small { color:var(--muted); font-size:11.5px; }
+  .g-pct.hi { background:var(--plus-bg); } .g-pct.hi b { color:var(--plus); }
+  .g-pct.md { background:var(--mid-bg); } .g-pct.md b { color:var(--mid); }
+  .g-pct.lo { background:var(--minus-bg); } .g-pct.lo b { color:var(--minus); }
+  .g-prompts { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { border:1px solid var(--line); background:var(--chip); border-radius:999px; padding:6px 11px; font-size:13px; touch-action:manipulation; }
+  .chip[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600; }
+  .icon-btn { border:none; background:transparent; width:32px; height:32px; border-radius:50%; font-size:15px; }
+  .icon-btn.danger { color:var(--minus); }
+  .add-goal { margin:10px 0 2px; }
+  .add-student { width:100%; padding:14px; border:2px dashed var(--line); border-radius:14px; background:transparent; color:var(--accent); font-weight:600; font-size:15px; }
+  .col-labels { display:none; }
+
+  @media (min-width:901px) {
+    .col-labels { display:grid; grid-template-columns:220px 1fr; font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:0 1px 6px; }
+    .col-labels .gl { display:grid; grid-template-columns:minmax(150px,1.2fr) 220px 82px minmax(200px,1.6fr) 32px; gap:12px; padding:0 14px; }
+  }
+  @media (max-width:900px) {
+    .student { grid-template-columns:1fr; }
+    .s-head { border-right:none; border-bottom:1px solid var(--line); }
+    .goal { grid-template-columns:1fr auto; grid-template-areas:"text del" "trials pct" "prompts prompts"; gap:10px; }
+    .g-text { grid-area:text; } .g-trials { grid-area:trials; } .g-pct { grid-area:pct; min-width:80px; }
+    .g-prompts { grid-area:prompts; } .goal > .icon-btn, .goal > .del-sp { grid-area:del; }
+    .settings { grid-template-columns:1fr; }
+  }
+
+  /* Modal + toast */
+  .modal-back { position:fixed; inset:0; background:rgba(10,14,20,.45); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px; padding-top:calc(var(--bar-space) + 16px); }
+  .modal { background:var(--card); border-radius:16px; width:100%; max-width:620px; max-height:calc(100% - 20px); overflow:auto; padding:18px; box-shadow:0 10px 40px rgba(0,0,0,.25); }
+  .modal h2 { margin:0 0 8px; font-size:18px; }
+  .modal p { margin:6px 0 12px; color:var(--muted); font-size:14px; }
+  .modal textarea { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; white-space:pre; min-height:150px; }
+  .modal .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; justify-content:flex-end; }
+  .modal label.chk { display:flex; gap:8px; align-items:center; font-size:14px; margin:8px 0; }
+  .modal label.chk input { width:auto; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:999px; overflow:hidden; margin:4px 0 6px; }
+  .seg button { border:none; background:transparent; padding:7px 14px; font-size:14px; }
+  .seg button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); font-weight:600; }
+  .toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(20px); opacity:0; background:var(--ink); color:var(--bg); padding:9px 16px; border-radius:999px; font-size:14px; transition:.2s; z-index:60; pointer-events:none; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  .badge.light { background:var(--accent-ink); color:var(--accent); }
+  #x-sum { color:var(--ink); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="tb-row">
+    <div class="tb-title">
+      <h1>SLP Session Tracker</h1>
+      <input type="date" id="session-date" aria-label="Session date">
+    </div>
+    <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark or light mode">☾</button>
+  </div>
+  <div class="tb-actions">
+    <button class="btn primary" id="btn-export">Export results</button>
+    <button class="btn" id="btn-clear">Clear results</button>
+    <button class="btn" id="btn-edit">Edit roster</button>
+    <button class="btn" id="btn-save">Save configuration</button>
+  </div>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Classes"></nav>
+</header>
+<main id="app"></main>
+<div id="modal-root"></div>
+<div id="toast" class="toast"></div>
+
+<script id="roster-data" type="application/json">{"classes":[{"title":"Class 1","promptLevels":["Independent","Minimal","Moderate","Maximal"],"students":[]}]}</script>
+<script>
+(function () {
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var DEFAULT_PROMPTS = ["Independent", "Minimal", "Moderate", "Maximal"];
+  var KEY = "slp-tracker:" + location.pathname;
+  var HEAD = ["Date", "Class", "Student", "Goal", "Correct (+)", "Incorrect (-)", "Accuracy", "Prompting", "Notes"];
+  var WIDTHS = [12, 18, 18, 34, 12, 13, 10, 24, 40];
+
+  function today() { var d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  function uid() { return Math.random().toString(36).slice(2, 10); }
+  function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function fmtDate(iso) { var p = (iso || "").split("-"); if (p.length !== 3) return iso; return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }); }
+  function slug(s) { return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+
+  // ---------- data ----------
+  // Every goal keeps its results by date: goal.days["2026-11-13"] = { h:[1,0,1] (+ = 1, − = 0), p:["Minimal"] }
+  // Every student keeps notes by date:    student.notes["2026-11-13"] = "text"
+  function normClass(c, i, legacyDate) {
+    c = c || {};
+    return {
+      id: c.id || uid(),
+      title: c.title || "Class " + (i + 1),
+      promptLevels: Array.isArray(c.promptLevels) && c.promptLevels.length ? c.promptLevels.slice() : DEFAULT_PROMPTS.slice(),
+      students: (c.students || []).map(function (s) {
+        var notes = {};
+        if (s.notes && typeof s.notes === "object") notes = s.notes;
+        else if (typeof s.notes === "string" && s.notes) notes[legacyDate] = s.notes;   // older versions: one note
+        return {
+          id: s.id || uid(), name: s.name || "", notes: notes,
+          goals: (s.goals || []).map(function (g) {
+            var days = g.days && typeof g.days === "object" ? g.days : {};
+            if ((Array.isArray(g.history) && g.history.length) || (Array.isArray(g.prompts) && g.prompts.length))   // older versions
+              days[legacyDate] = { h: g.history || [], p: g.prompts || [] };
+            return { id: g.id || uid(), text: g.text || "", days: days };
+          })
+        };
+      })
+    };
+  }
+  function normalize(r) {
+    r = r || {};
+    var legacyDate = r.date || today();
+    var raw = Array.isArray(r.classes) ? r.classes : [{ title: r.title, promptLevels: r.promptLevels, students: r.students }];
+    var classes = raw.map(function (c, i) { return normClass(c, i, legacyDate); });
+    if (!classes.length) classes = [normClass({}, 0, legacyDate)];
+    var active = classes.some(function (c) { return c.id === r.activeClass; }) ? r.activeClass : classes[0].id;
+    return {
+      viewDate: today(), activeClass: active, classes: classes,
+      includeHeader: r.includeHeader === true, exportView: r.exportView === "all" ? "all" : "new",
+      exported: r.exported && typeof r.exported === "object" ? r.exported : {},
+      lastExport: r.lastExport || null
+    };
+  }
+
+  var embedded = {};
+  try { embedded = JSON.parse($("#roster-data").textContent || "{}"); } catch (e) {}
+  var state = normalize(embedded);
+  try {
+    var stored = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (stored && (Array.isArray(stored.classes) || Array.isArray(stored.students))) state = normalize(stored);
+  } catch (e) {}
+  var editMode = cur().students.length === 0;
+
+  function cur() { return state.classes.find(function (c) { return c.id === state.activeClass; }) || state.classes[0]; }
+  function findS(id) { return cur().students.find(function (s) { return s.id === id; }); }
+  function dayOf(g, d) { return g.days[d || state.viewDate] || { h: [], p: [] }; }
+  function ensureDay(g) { return g.days[state.viewDate] || (g.days[state.viewDate] = { h: [], p: [] }); }
+  function tidyDay(g) { var d = g.days[state.viewDate]; if (d && !d.h.length && !d.p.length) delete g.days[state.viewDate]; }
+  function count(h) { var p = h.filter(function (x) { return x; }).length; return { p: p, m: h.length - p, t: h.length }; }
+  function pctOf(c) { return c.t ? Math.round(c.p / c.t * 100) : null; }
+
+  function persist() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    updateBadges();
+  }
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
+  // ---------- rows for export: one row per student, goal and date ----------
+  function allRows() {
+    var out = [];
+    state.classes.forEach(function (c, ci) {
+      c.students.forEach(function (s, si) {
+        var dates = {};
+        s.goals.forEach(function (g) { Object.keys(g.days).forEach(function (d) { dates[d] = 1; }); });
+        Object.keys(s.notes).forEach(function (d) { if (s.notes[d]) dates[d] = 1; });
+        Object.keys(dates).forEach(function (d) {
+          var note = s.notes[d] || "", any = false;
+          s.goals.forEach(function (g, gi) {
+            var dd = g.days[d]; if (!dd || (!dd.h.length && !dd.p.length)) return;
+            any = true; var n = count(dd.h);
+            out.push({ key: d + "|" + s.id + "|" + g.id, sig: JSON.stringify([dd.h, dd.p, note]), order: [d, ci, si, gi], s: s, g: g, date: d,
+              cells: [d, c.title, s.name, g.text, n.p, n.m, n.t ? n.p / n.t : null, dd.p.join(", "), note] });
+          });
+          if (!any && note) out.push({ key: d + "|" + s.id + "|note", sig: JSON.stringify([note]), order: [d, ci, si, -1], s: s, g: null, date: d,
+            cells: [d, c.title, s.name, "", "", "", null, "", note] });
+        });
+      });
+    });
+    out.sort(function (a, b) { for (var i = 0; i < 4; i++) { if (a.order[i] < b.order[i]) return -1; if (a.order[i] > b.order[i]) return 1; } return 0; });
+    return out;
+  }
+  function isNew(r) { return state.exported[r.key] !== r.sig; }
+  function wasUpdated(r) { return state.exported[r.key] != null && state.exported[r.key] !== r.sig; }
+
+  function updateBadges() {
+    var e = $("#btn-export"); if (e) { var k = allRows().filter(isNew).length; e.innerHTML = "Export results" + (k ? '<span class="badge light">' + k + " new</span>" : ""); }
+  }
+
+  // ---------- theme ----------
+  var theme = "light";
+  try { theme = localStorage.getItem("slp-theme") || (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); } catch (e) {}
+  function applyTheme() { document.documentElement.setAttribute("data-theme", theme); $("#theme-toggle").textContent = theme === "dark" ? "☀" : "☾"; }
+  $("#theme-toggle").addEventListener("click", function () { theme = theme === "dark" ? "light" : "dark"; try { localStorage.setItem("slp-theme", theme); } catch (e) {} applyTheme(); });
+  applyTheme();
+
+  // ---------- render ----------
+  function renderTabs() {
+    $("#tabs").innerHTML = state.classes.map(function (c) {
+      return '<button class="tab" role="tab" data-cid="' + c.id + '" aria-selected="' + (c.id === state.activeClass) + '">' +
+        esc(c.title || "Untitled class") + '<span class="cnt">' + c.students.length + '</span></button>';
+    }).join("") + '<button class="tab add" data-cid="__add">+ Class</button>';
+  }
+
+  function goalHTML(g) {
+    var dd = dayOf(g), c = count(dd.h), pc = pctOf(c);
+    var band = pc == null ? "" : pc >= 80 ? "hi" : pc >= 50 ? "md" : "lo";
+    var dots = dd.h.slice(-40).map(function (x) { return '<i class="' + (x ? "y" : "n") + '"></i>'; }).join("");
+    return '<div class="goal" data-gid="' + g.id + '">' +
+      '<div class="g-text">' + (editMode
+        ? '<input data-field="goal" value="' + esc(g.text) + '" placeholder="Goal (e.g., says /s/ in initial position)">'
+        : (esc(g.text) || '<span class="muted">Untitled goal</span>')) + '</div>' +
+      '<div class="g-trials">' +
+        '<button class="tbtn minus" data-act="minus" aria-label="Did not">−</button>' +
+        '<button class="tbtn plus" data-act="plus" aria-label="Did it">+</button>' +
+        '<div class="tally"><span class="m">−' + c.m + '</span><span class="sep"></span><span class="p">+' + c.p + '</span></div>' +
+        '<button class="tbtn undo" data-act="undo" aria-label="Undo last tap"' + (dd.h.length ? "" : " disabled") + '>↶</button>' +
+        '<div class="seq">' + dots + '</div>' +
+      '</div>' +
+      '<div class="g-pct ' + band + '"><b>' + (pc == null ? "—" : pc + "%") + '</b><small>' + c.p + ' of ' + c.t + '</small></div>' +
+      '<div class="g-prompts">' + cur().promptLevels.map(function (pl) {
+        return '<button class="chip" data-act="prompt" data-level="' + esc(pl) + '" aria-pressed="' + (dd.p.indexOf(pl) > -1) + '">' + esc(pl) + '</button>';
+      }).join("") + '</div>' +
+      (editMode ? '<button class="icon-btn danger" data-act="del-goal" aria-label="Remove goal">✕</button>' : '<span class="del-sp"></span>') +
+      '</div>';
+  }
+
+  function studentHTML(s) {
+    var list = cur().students, sIdx = list.indexOf(s), sCount = list.length;
+    var trials = 0, plus = 0;
+    s.goals.forEach(function (g) { var c = count(dayOf(g).h); trials += c.t; plus += c.p; });
+    var meta = s.goals.length + " goal" + (s.goals.length === 1 ? "" : "s") + (trials ? " · " + trials + " trial" + (trials === 1 ? "" : "s") + " · " + Math.round(plus / trials * 100) + "% overall" : "");
+    return '<section class="student" data-sid="' + s.id + '">' +
+      '<div class="s-head">' +
+        (editMode ? '<input data-field="name" value="' + esc(s.name) + '" placeholder="Student name">'
+                  : '<h2 class="s-name">' + (esc(s.name) || '<span class="muted">Unnamed</span>') + '</h2>') +
+        '<div class="s-meta">' + meta + '</div>' +
+        '<textarea data-field="notes" rows="2" placeholder="Notes for ' + esc(fmtDate(state.viewDate)) + ' (optional)">' + esc(s.notes[state.viewDate] || "") + '</textarea>' +
+        (editMode ? '<div class="s-actions">' +
+          '<button class="btn small" data-act="student-up" aria-label="Move student up"' + (sIdx === 0 ? " disabled" : "") + '>▲ Up</button>' +
+          '<button class="btn small" data-act="student-down" aria-label="Move student down"' + (sIdx === sCount - 1 ? " disabled" : "") + '>▼ Down</button>' +
+          '<button class="btn small danger" data-act="del-student">Remove student</button></div>' : "") +
+      '</div>' +
+      '<div class="goals">' +
+        (s.goals.map(goalHTML).join("") || (editMode ? "" : '<p class="muted">No goals yet — tap Edit roster to add some.</p>')) +
+        (editMode ? '<button class="btn add-goal" data-act="add-goal">+ Add goal</button>' : "") +
+      '</div></section>';
+  }
+
+  function render() {
+    var c = cur(), idx = state.classes.indexOf(c);
+    renderTabs();
+    $("#session-date").value = state.viewDate;
+    var be = $("#btn-edit"); be.textContent = editMode ? "Done editing" : "Edit roster"; be.classList.toggle("on", editMode);
+    var h = "";
+    if (state.viewDate !== today()) h += '<div class="notice"><span>You’re looking at <b>' + esc(fmtDate(state.viewDate)) + '</b>. Taps and notes are saved to that day.</span>' +
+      '<button class="btn small primary" data-act="to-today">Back to today</button></div>';
+    if (editMode) h += '<div class="panel settings">' +
+      '<label>Class name<input data-setting="title" value="' + esc(c.title) + '" placeholder="e.g., Tuesday 10:00 artic group"></label>' +
+      '<label>Prompting buttons for this class (comma-separated)<input data-setting="prompts" value="' + esc(c.promptLevels.join(", ")) + '"></label>' +
+      '<div class="s-row"><button class="btn small" data-act="sort-students"' + (c.students.length < 2 ? " disabled" : "") + '>Sort students A–Z</button>' +
+      '<button class="btn small" data-act="class-left"' + (idx === 0 ? " disabled" : "") + '>◀ Move tab</button>' +
+      '<button class="btn small" data-act="class-right"' + (idx === state.classes.length - 1 ? " disabled" : "") + '>Move tab ▶</button>' +
+      '<span class="sp"></span><button class="btn small danger" data-act="del-class">Delete class</button></div></div>';
+    if (!c.students.length) h += '<div class="panel empty"><h2>No students in ' + esc(c.title || "this class") + ' yet</h2><p class="muted">Add students and their goals, then tap “Done editing” to start tapping. Use “+ Class” up top for another group.</p>' +
+      (state.classes.every(function (k) { return !k.students.length; }) ? '<p class="muted">Already set up before? Load your saved configuration file instead.</p><button class="btn primary" data-act="load-config">Load configuration</button>' : "") + '</div>';
+    else h += '<div class="col-labels"><span>Student</span><div class="gl"><span>Goal</span><span>Did it? (− / +)</span><span>Percent</span><span>Prompting / support</span><span></span></div></div>';
+    h += c.students.map(studentHTML).join("");
+    if (editMode) h += '<button class="add-student" data-act="add-student">+ Add student</button>';
+    $("#app").innerHTML = h;
+    updateBadges();
+  }
+  function rerenderStudent(s) {
+    var el = document.querySelector('.student[data-sid="' + s.id + '"]');
+    if (el) el.outerHTML = studentHTML(s); else render();
+  }
+
+  // ---------- class tabs ----------
+  $("#tabs").addEventListener("click", function (e) {
+    var t = e.target.closest(".tab"); if (!t) return;
+    var cid = t.getAttribute("data-cid");
+    if (cid === "__add") {
+      var nc = normClass({ title: "Class " + (state.classes.length + 1), promptLevels: cur().promptLevels }, state.classes.length, today());
+      state.classes.push(nc); state.activeClass = nc.id; editMode = true; persist(); render();
+      var ti = $('input[data-setting="title"]'); if (ti) { ti.focus(); ti.select(); }
+      return;
+    }
+    if (cid === state.activeClass) return;
+    state.activeClass = cid; persist(true);
+    if (!editMode && !cur().students.length) editMode = true;
+    render(); document.body.scrollTop = 0;
+  });
+
+  // ---------- taps & edits ----------
+  $("#app").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-act]"); if (!b || b.disabled) return;
+    var act = b.getAttribute("data-act"), c = cur();
+    var sEl = b.closest(".student"), gEl = b.closest(".goal");
+    var s = sEl && findS(sEl.getAttribute("data-sid"));
+    var g = s && gEl && s.goals.find(function (x) { return x.id === gEl.getAttribute("data-gid"); });
+
+    if (act === "plus" || act === "minus") { ensureDay(g).h.push(act === "plus" ? 1 : 0); persist(); rerenderStudent(s); }
+    else if (act === "undo") { ensureDay(g).h.pop(); tidyDay(g); persist(); rerenderStudent(s); }
+    else if (act === "prompt") {
+      var dd = ensureDay(g), lv = b.getAttribute("data-level"), i = dd.p.indexOf(lv);
+      if (i > -1) dd.p.splice(i, 1); else dd.p.push(lv);
+      dd.p.sort(function (a, z) { return c.promptLevels.indexOf(a) - c.promptLevels.indexOf(z); });
+      tidyDay(g); persist(); b.setAttribute("aria-pressed", i === -1);
+    }
+    else if (act === "to-today") { state.viewDate = today(); render(); }
+    else if (act === "load-config") { openSave(); var fi = $("#cf-file"); if (fi) fi.scrollIntoView({ block: "center" }); }
+    else if (act === "add-student") {
+      var ns = { id: uid(), name: "", notes: {}, goals: [{ id: uid(), text: "", days: {} }] };
+      c.students.push(ns); persist(); render();
+      var inp = document.querySelector('.student[data-sid="' + ns.id + '"] input[data-field="name"]'); if (inp) { inp.focus(); inp.scrollIntoView({ block: "center" }); }
+    }
+    else if (act === "add-goal") {
+      var ng = { id: uid(), text: "", days: {} };
+      s.goals.push(ng); persist(); rerenderStudent(s);
+      var gi = document.querySelector('.goal[data-gid="' + ng.id + '"] input'); if (gi) gi.focus();
+    }
+    else if (act === "del-goal") {
+      var nd = Object.keys(g.days).length;
+      var doDel = function () { s.goals = s.goals.filter(function (x) { return x !== g; }); persist(); rerenderStudent(s); };
+      var gName = "“" + (g.text || "Untitled goal") + "”";
+      if (nd) confirmTwice("Remove " + gName + "?",
+        "This removes the goal " + gName + " from " + (s.name || "this student") + ", along with its recorded results from " + nd + " day" + (nd === 1 ? "" : "s") + ". Export first if you need them.",
+        "Remove goal", "Removing " + gName + " and its results can’t be undone.", "Yes, remove it", doDel);
+      else if (g.text) confirmBox("Remove the goal " + gName + "?", "Remove", doDel);
+      else doDel();
+    }
+    else if (act === "del-student") {
+      var sName = s.name || "this student";
+      confirmTwice("Remove " + sName + "?",
+        "This removes " + sName + " from " + (c.title || "this class") + ", along with their " + s.goals.length + " goal" + (s.goals.length === 1 ? "" : "s") + " and all of their recorded results. Export first if you need them.",
+        "Remove student", "Removing " + sName + " and all of their data can’t be undone.", "Yes, remove " + (s.name || "student"), function () {
+        c.students = c.students.filter(function (x) { return x !== s; }); persist(); render(); toast((s.name || "Student") + " removed");
+      });
+    }
+    else if (act === "student-up" || act === "student-down") {
+      var a0 = c.students.indexOf(s), a1 = a0 + (act === "student-up" ? -1 : 1);
+      if (a1 < 0 || a1 >= c.students.length) return;
+      c.students.splice(a0, 1); c.students.splice(a1, 0, s); persist(); render();
+      var moved = document.querySelector('.student[data-sid="' + s.id + '"]');
+      if (moved) moved.scrollIntoView({ block: "nearest" });
+    }
+    else if (act === "sort-students") {
+      var before = c.students.map(function (x) { return x.id; }).join();
+      c.students.sort(function (x, y) { return (x.name || "\uffff").localeCompare(y.name || "\uffff", undefined, { sensitivity: "base", numeric: true }); });
+      if (c.students.map(function (x) { return x.id; }).join() === before) { toast("Already in A–Z order"); return; }
+      persist(); render(); toast("Students sorted A–Z");
+    }
+    else if (act === "class-left" || act === "class-right") {
+      var i0 = state.classes.indexOf(c), i1 = i0 + (act === "class-left" ? -1 : 1);
+      state.classes.splice(i0, 1); state.classes.splice(i1, 0, c); persist(); render();
+    }
+    else if (act === "del-class") {
+      var cName = "“" + (c.title || "Untitled class") + "”";
+      confirmTwice("Delete " + cName + "?",
+        "This removes the class " + cName + " and all of its data: " + c.students.length + " student" + (c.students.length === 1 ? "" : "s") + ", their goals, and every recorded result and note. Export first if you need the results.",
+        "Delete class", "Deleting " + cName + " and all of its data can’t be undone.", "Yes, delete it", function () {
+        var i0 = state.classes.indexOf(c);
+        state.classes.splice(i0, 1);
+        if (!state.classes.length) state.classes.push(normClass({}, 0, today()));
+        state.activeClass = state.classes[Math.max(0, i0 - 1)].id;
+        persist(); render(); toast("Class deleted");
+      });
+    }
+  });
+
+  $("#app").addEventListener("input", function (e) {
+    var t = e.target, f = t.getAttribute("data-field"), st = t.getAttribute("data-setting");
+    if (st === "title") { cur().title = t.value; persist(); renderTabs(); return; }
+    if (!f) return;
+    var s = findS(t.closest(".student").getAttribute("data-sid"));
+    if (f === "name") s.name = t.value;
+    else if (f === "notes") { if (t.value) s.notes[state.viewDate] = t.value; else delete s.notes[state.viewDate]; }
+    else if (f === "goal") { var gid = t.closest(".goal").getAttribute("data-gid"); s.goals.find(function (x) { return x.id === gid; }).text = t.value; }
+    persist();
+  });
+
+  $("#app").addEventListener("change", function (e) {
+    if (e.target.getAttribute("data-setting") !== "prompts") return;
+    var c = cur();
+    var list = e.target.value.split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+    c.promptLevels = list.length ? list : DEFAULT_PROMPTS.slice();
+    persist(); render();
+  });
+
+  $("#session-date").addEventListener("change", function (e) { state.viewDate = e.target.value || today(); render(); });
+  $("#btn-edit").addEventListener("click", function () { editMode = !editMode; render(); });
+  $("#btn-export").addEventListener("click", openExport);
+  $("#btn-save").addEventListener("click", openSave);
+  $("#btn-clear").addEventListener("click", openClear);
+
+  // Clear every recorded result (all classes, all days). Students, goals and classes stay.
+  function openClear() {
+    var rows = allRows(), unexp = rows.filter(isNew).length;
+    if (!rows.length) { toast("Nothing to clear — no results recorded"); return; }
+    confirmTwice("Clear all results?",
+      "This erases every recorded tap, prompting choice and note — " + rows.length + " row" + (rows.length === 1 ? "" : "s") + " from " + dateRange(rows) + ", across all classes. Your classes, students and goals stay.",
+      "Clear results",
+      "Clearing all results can’t be undone." + (unexp ? " " + unexp + " row" + (unexp === 1 ? " hasn’t" : "s haven’t") + " been exported." : ""),
+      "Yes, clear everything",
+      function () {
+        state.classes.forEach(function (c) { c.students.forEach(function (s) { s.notes = {}; s.goals.forEach(function (g) { g.days = {}; }); }); });
+        state.exported = {}; state.viewDate = today();
+        persist(); render(); toast("All results cleared — ready for a fresh start");
+      },
+      unexp ? '<p class="alert">⚠ ' + unexp + ' of these row' + (unexp === 1 ? " hasn’t" : "s haven’t") + ' been exported yet. Export first so you don’t lose them.</p>' : "",
+      unexp ? { label: "Go to Export", fn: openExport } : null);
+  }
+
+  // ---------- export ----------
+  function tsvCell(v, i) {
+    if (i === 6) return v == null ? "" : Math.round(v * 100) + "%";
+    v = String(v == null ? "" : v).replace(/[\t\r\n]+/g, " ");
+    return /^[=+\-@]/.test(v) ? "'" + v : v;
+  }
+  function toTSV(rows) {
+    var lines = rows.map(function (r) { return r.cells.map(tsvCell).join("\t"); });
+    if (state.includeHeader) lines.unshift(HEAD.join("\t"));
+    return lines.join("\n");
+  }
+  function dateRange(rows) {
+    if (!rows.length) return "";
+    var a = rows[0].date, b = rows[rows.length - 1].date;
+    return a === b ? fmtDate(a) : fmtDate(a) + " – " + fmtDate(b);
+  }
+  function markExported(rows) {
+    rows.forEach(function (r) { state.exported[r.key] = r.sig; });
+    state.lastExport = new Date().toISOString(); persist(true);
+  }
+
+  function openExport() {
+    openModal('<h2>Export results</h2>' +
+      '<div class="seg" id="x-view"><button data-view="new">New since last export</button><button data-view="all">Everything</button></div>' +
+      '<p id="x-sum"></p>' +
+      '<div class="x-sec"><h3>1 · Copy &amp; paste into your spreadsheet</h3>' +
+      '<p>Copy, then in Google Sheets tap the first empty cell under your data and paste. Each value lands in its own column.</p>' +
+      '<label class="chk"><input type="checkbox" id="x-head"' + (state.includeHeader ? " checked" : "") + '> Include column titles (only needed the first time)</label>' +
+      '<textarea id="x-text" readonly></textarea>' +
+      '<div class="row"><button class="btn primary" id="x-copy">Copy</button></div></div>' +
+      '<div class="x-sec"><h3>2 · Save as a spreadsheet file</h3>' +
+      '<p>Saves an Excel file on this device. It opens in Google Sheets or Excel, and you can copy the rows from there.</p>' +
+      '<div class="row" id="x-xrow"></div></div>' +
+      '<div class="x-sec"><h3>3 · Send to Google Sheet</h3>' +
+      '<p>Adds the rows straight to your Google Sheet — no copying.</p>' +
+      '<div class="row"><button class="btn" id="x-send">Send to Google Sheet</button></div></div>' +
+      '<div class="x-sec"><h3>4 · Clear results when you’re done</h3>' +
+      '<p id="x-clean-txt"></p>' +
+      '<div class="row"><button class="btn danger" id="x-clear">Clear all results</button></div></div>' +
+      '<div class="row" style="margin-top:18px"><button class="btn" data-close>Close</button></div>');
+
+    var rows = [];
+    var xFA = fileActions($("#x-xrow"),
+      function () { return "slp-results-" + (rows.length ? rows[0].date + (rows[0].date !== rows[rows.length - 1].date ? "-to-" + rows[rows.length - 1].date : "") : today()) + ".xlsx"; },
+      function () { return buildXlsx([{ name: "Results", rows: rows.map(xlCells) }]); }, "Save spreadsheet",
+      function () { markExported(rows); fillStatus("✓ Saved. These rows are now marked as exported."); });
+
+    function fillStatus(msg) {
+      var all = allRows(), fresh = all.filter(isNew), upd = fresh.filter(wasUpdated).length;
+      $("#x-view").querySelectorAll("button").forEach(function (b) {
+        var n = b.getAttribute("data-view") === "all" ? all.length : fresh.length;
+        b.textContent = (b.getAttribute("data-view") === "all" ? "Everything" : "New since last export") + " (" + n + ")";
+        b.setAttribute("aria-pressed", b.getAttribute("data-view") === state.exportView);
+      });
+      var sum = rows.length ? rows.length + " row" + (rows.length === 1 ? "" : "s") + " · " + dateRange(rows) : (state.exportView === "new" ? "Nothing new since your last export." : "No results recorded yet.");
+      if (state.exportView === "new" && upd) sum += " · " + upd + " changed after you exported " + (upd === 1 ? "it" : "them") + " — delete the old " + (upd === 1 ? "row" : "rows") + " for that day in your sheet after pasting.";
+      if (state.lastExport) sum += " Last export: " + fmtTime(state.lastExport) + ".";
+      $("#x-sum").textContent = (msg ? msg + " " : "") + sum;
+      $("#x-clean-txt").textContent = all.length
+        ? "Once the results are in your spreadsheet, clear them so the tool starts fresh and nothing gets pasted twice. Students and goals stay." +
+          (fresh.length ? " (" + fresh.length + " row" + (fresh.length === 1 ? " hasn’t" : "s haven’t") + " been exported yet.)" : "")
+        : "Nothing to clear — no results recorded.";
+      $("#x-clear").disabled = !all.length;
+    }
+    function fill() {
+      var all = allRows();
+      rows = state.exportView === "all" ? all : all.filter(isNew);
+      $("#x-text").value = toTSV(rows);
+      fillStatus(); xFA.refresh();
+    }
+    fill();
+
+    $("#x-view").addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; state.exportView = b.getAttribute("data-view"); persist(true); fill(); });
+    $("#x-head").addEventListener("change", function (e) { state.includeHeader = e.target.checked; persist(true); $("#x-text").value = toTSV(rows); });
+    $("#x-copy").addEventListener("click", function () {
+      if (!rows.length) { toast("Nothing to copy"); return; }
+      copyText($("#x-text").value).then(function (ok) {
+        if (ok) { markExported(rows); fillStatus("✓ Copied — now paste into your spreadsheet."); toast("Copied — paste into Google Sheets"); }
+        else { var ta = $("#x-text"); ta.focus(); ta.select(); toast("Select all & copy from the box"); }
+      });
+    });
+    $("#x-send").addEventListener("click", function () {
+      openModal('<h2>Not added yet</h2><p>Sending straight to Google Sheets is coming soon. For now, use Copy or Save spreadsheet.</p>' +
+        '<div class="row"><button class="btn primary" id="ns-back">Back to export</button></div>');
+      $("#ns-back").addEventListener("click", openExport);
+    });
+    $("#x-clear").addEventListener("click", openClear);
+  }
+
+  // ---------- Excel (.xlsx), built in the page — no internet needed ----------
+  function dateSerial(iso) { var p = (iso || "").split("-"); if (p.length !== 3) return null; return (Date.UTC(+p[0], +p[1] - 1, +p[2]) - Date.UTC(1899, 11, 30)) / 86400000; }
+  function xlCells(r) {
+    return r.cells.map(function (v, i) {
+      if (i === 0) { var ds = dateSerial(v); return ds == null ? v : { d: ds }; }
+      if (i === 6) return v == null ? "" : { pct: v };
+      return v;
+    });
+  }
+  function xmlEsc(s) { return String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function colName(i) { var s = ""; i++; while (i) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+  var CRC_T = (function () { var t = [], c; for (var n = 0; n < 256; n++) { c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(u) { var c = 0xFFFFFFFF; for (var i = 0; i < u.length; i++) c = CRC_T[(c ^ u[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  function zipBlob(files, type) {
+    var enc = new TextEncoder(), parts = [], central = [], offset = 0, d = new Date();
+    var tm = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    var dt = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    files.forEach(function (f) {
+      var nm = enc.encode(f.name), data = enc.encode(f.data), crc = crc32(data);
+      var h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+      h.setUint16(10, tm, true); h.setUint16(12, dt, true); h.setUint32(14, crc, true);
+      h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, nm.length, true); h.setUint16(28, 0, true);
+      parts.push(new Uint8Array(h.buffer), nm, data);
+      var c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true);
+      c.setUint16(12, tm, true); c.setUint16(14, dt, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true);
+      c.setUint16(28, nm.length, true); c.setUint32(42, offset, true);
+      central.push(new Uint8Array(c.buffer), nm);
+      offset += 30 + nm.length + data.length;
+    });
+    var cd = central.reduce(function (a, b) { return a + b.length; }, 0);
+    var e = new DataView(new ArrayBuffer(22));
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cd, true); e.setUint32(16, offset, true);
+    return new Blob(parts.concat(central, [new Uint8Array(e.buffer)]), { type: type });
+  }
+  function buildXlsx(sheets) {
+    var NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"', X = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+    var sst = [], sstIdx = new Map(), sstCount = 0;
+    function si(v) { sstCount++; if (!sstIdx.has(v)) { sstIdx.set(v, sst.length); sst.push(v); } return sstIdx.get(v); }
+    var files = [];
+    sheets.forEach(function (sh, n) {
+      var all = [HEAD].concat(sh.rows), xml = "";
+      all.forEach(function (row, r) {
+        xml += '<row r="' + (r + 1) + '">';
+        row.forEach(function (v, ci) {
+          var ref = colName(ci) + (r + 1);
+          if (r === 0) xml += '<c r="' + ref + '" t="s" s="1"><v>' + si(String(v)) + '</v></c>';
+          else if (v && typeof v === "object" && "d" in v) xml += '<c r="' + ref + '" s="3"><v>' + v.d + '</v></c>';
+          else if (v && typeof v === "object" && "pct" in v) xml += '<c r="' + ref + '" s="2"><v>' + v.pct + '</v></c>';
+          else if (typeof v === "number") xml += '<c r="' + ref + '"><v>' + v + '</v></c>';
+          else if (v !== "" && v != null) xml += '<c r="' + ref + '" t="s"><v>' + si(String(v)) + '</v></c>';
+        });
+        xml += '</row>';
+      });
+      files.push({ name: "xl/worksheets/sheet" + (n + 1) + ".xml", data: X + '<worksheet ' + NS + '>' +
+        '<sheetViews><sheetView workbookViewId="0"' + (n === 0 ? ' tabSelected="1"' : '') + '><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
+        '<cols>' + WIDTHS.map(function (w, i) { return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>'; }).join("") + '</cols>' +
+        '<sheetData>' + xml + '</sheetData></worksheet>' });
+    });
+    var R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    files.push({ name: "xl/sharedStrings.xml", data: X + '<sst ' + NS + ' count="' + sstCount + '" uniqueCount="' + sst.length + '">' +
+      sst.map(function (s) { return '<si><t xml:space="preserve">' + xmlEsc(s) + '</t></si>'; }).join("") + '</sst>' });
+    files.push({ name: "xl/styles.xml", data: X + '<styleSheet ' + NS + '>' +
+      '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE4F1F0"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+      '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>' +
+      '<xf numFmtId="9" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+      '<xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>' +
+      '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' });
+    files.push({ name: "xl/workbook.xml", data: X + '<workbook ' + NS + ' xmlns:r="' + R + '"><bookViews><workbookView/></bookViews><sheets>' +
+      sheets.map(function (sh, n) { return '<sheet name="' + xmlEsc(sh.name) + '" sheetId="' + (n + 1) + '" r:id="rId' + (n + 1) + '"/>'; }).join("") + '</sheets></workbook>' });
+    var k = sheets.length;
+    files.push({ name: "xl/_rels/workbook.xml.rels", data: X + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      sheets.map(function (sh, n) { return '<Relationship Id="rId' + (n + 1) + '" Type="' + R + '/worksheet" Target="worksheets/sheet' + (n + 1) + '.xml"/>'; }).join("") +
+      '<Relationship Id="rId' + (k + 1) + '" Type="' + R + '/styles" Target="styles.xml"/>' +
+      '<Relationship Id="rId' + (k + 2) + '" Type="' + R + '/sharedStrings" Target="sharedStrings.xml"/></Relationships>' });
+    files.push({ name: "_rels/.rels", data: X + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="' + R + '/officeDocument" Target="xl/workbook.xml"/></Relationships>' });
+    var CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.";
+    files.unshift({ name: "[Content_Types].xml", data: X + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="' + CT + 'sheet.main+xml"/>' +
+      sheets.map(function (sh, n) { return '<Override PartName="/xl/worksheets/sheet' + (n + 1) + '.xml" ContentType="' + CT + 'worksheet+xml"/>'; }).join("") +
+      '<Override PartName="/xl/styles.xml" ContentType="' + CT + 'styles+xml"/>' +
+      '<Override PartName="/xl/sharedStrings.xml" ContentType="' + CT + 'sharedStrings+xml"/></Types>' });
+    return zipBlob(files, CT + "sheet");
+  }
+
+  function fmtTime(iso) { try { var d = new Date(iso); return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " at " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); } catch (e) { return iso; } }
+
+  // ---------- configuration: classes, students, goals & prompting buttons (no results) ----------
+  function configData() {
+    return {
+      app: "slp-session-tracker", type: "configuration", version: 1, savedAt: new Date().toISOString(),
+      classes: state.classes.map(function (c) {
+        return { id: c.id, title: c.title, promptLevels: c.promptLevels,
+          students: c.students.map(function (s) { return { id: s.id, name: s.name, goals: s.goals.map(function (g) { return { id: g.id, text: g.text }; }) }; }) };
+      })
+    };
+  }
+  function configSummary(cfg) {
+    var nS = 0, nG = 0;
+    cfg.classes.forEach(function (c) { (c.students || []).forEach(function (s) { nS++; nG += (s.goals || []).length; }); });
+    return cfg.classes.length + " class" + (cfg.classes.length === 1 ? "" : "es") + ", " + nS + " student" + (nS === 1 ? "" : "s") + ", " + nG + " goal" + (nG === 1 ? "" : "s");
+  }
+  // Loads a configuration. Results already recorded here are kept for any student and goal that's in the file.
+  function applyConfig(cfg) {
+    var oldS = {}, oldG = {};
+    state.classes.forEach(function (c) { c.students.forEach(function (s) { oldS[s.id] = s; s.goals.forEach(function (g) { oldG[g.id] = g; }); }); });
+    var classes = cfg.classes.map(function (c, i) {
+      var nc = normClass({ id: c.id, title: c.title, promptLevels: c.promptLevels,
+        students: (c.students || []).map(function (s) { return { id: s.id, name: s.name, goals: (s.goals || []).map(function (g) { return { id: g.id, text: g.text }; }) }; }) }, i, today());
+      nc.students.forEach(function (s) {
+        if (oldS[s.id]) s.notes = oldS[s.id].notes;
+        s.goals.forEach(function (g) { if (oldG[g.id]) g.days = oldG[g.id].days; });
+      });
+      return nc;
+    });
+    if (!classes.length) classes = [normClass({}, 0, today())];
+    state.classes = classes; state.activeClass = classes[0].id;
+    editMode = false; persist(); render();
+  }
+  function readConfigFile(file) {
+    var fr = new FileReader();
+    fr.onload = function () {
+      var cfg; try { cfg = JSON.parse(fr.result); } catch (e) { cfg = null; }
+      if (!cfg || !Array.isArray(cfg.classes)) { toast("That file isn’t a tracker configuration"); return; }
+      var ids = {};
+      cfg.classes.forEach(function (c) { (c.students || []).forEach(function (s) { ids[s.id] = 1; (s.goals || []).forEach(function (g) { ids[g.id] = 1; }); }); });
+      var lost = allRows().filter(function (r) { return !ids[r.s.id] || (r.g && !ids[r.g.id]); }).length;
+      var msg = "This sets up the tool with " + configSummary(cfg) + (cfg.savedAt ? " (saved " + fmtTime(cfg.savedAt) + ")" : "") + ", replacing the classes and students on screen now.";
+      if (!lost) { confirmBox(msg + (allRows().length ? " Your recorded results are kept." : ""), "Load configuration", function () { applyConfig(cfg); toast("Configuration loaded"); }); return; }
+      confirmTwice("Load this configuration?", msg + " Results for students or goals that aren’t in this file will be deleted.",
+        "Load configuration", lost + " recorded row" + (lost === 1 ? " belongs" : "s belong") + " to students or goals that aren’t in this file and will be deleted. This can’t be undone.",
+        "Yes, load it", function () { applyConfig(cfg); toast("Configuration loaded"); },
+        '<p class="alert">⚠ ' + lost + ' recorded row' + (lost === 1 ? "" : "s") + ' would be lost. Export first if you need them.</p>', { label: "Go to Export", fn: openExport });
+    };
+    fr.readAsText(file);
+  }
+
+  // A copy of this whole tool with the current classes built in (optional).
+  function buildTemplateHTML() {
+    var data = configData();
+    var clone = document.documentElement.cloneNode(true);
+    $("#app", clone).innerHTML = "";
+    $("#tabs", clone).innerHTML = "";
+    $("#modal-root", clone).innerHTML = "";
+    $("#toast", clone).className = "toast";
+    $("#btn-export", clone).textContent = "Export results";
+    $("#roster-data", clone).textContent = JSON.stringify(data).replace(/</g, "\\u003c");
+    clone.removeAttribute("data-theme");
+    return "<!DOCTYPE html>\n" + clone.outerHTML;
+  }
+
+  function openSave() {
+    var day = today();
+    openModal('<h2>Configuration</h2>' +
+      '<p>Your configuration is your setup — classes, students, goals and prompting buttons. It doesn’t include any results. Keep the file somewhere safe (it has student names), and load it into any new version of this tool, on any device.</p>' +
+      '<div class="x-sec"><h3>Save configuration</h3>' +
+      '<p>' + esc(configSummary(configData())) + '. Save a new copy whenever you add or change students or goals.</p>' +
+      '<div class="row" id="cf-row"></div></div>' +
+      '<div class="x-sec"><h3>Load configuration</h3>' +
+      '<p>Pick a configuration file you saved earlier — for example after opening an updated version of this tool.</p>' +
+      '<input type="file" id="cf-file" accept=".json,application/json,text/plain"></div>' +
+      '<div class="x-sec"><h3>Save a copy of the tool (optional)</h3>' +
+      '<p>A copy of this page with your classes and students already built in, so it opens set up. Results are left out.</p>' +
+      '<div class="row" id="ht-row"></div></div>' +
+      '<div class="row" style="margin-top:18px"><button class="btn" data-close>Close</button></div>');
+    fileActions($("#cf-row"), function () { return "slp-configuration-" + day + ".json"; },
+      function () { return new Blob([JSON.stringify(configData(), null, 2)], { type: "application/json" }); }, "Save configuration").refresh();
+    fileActions($("#ht-row"), function () { return "slp-tracker-" + day + ".html"; },
+      function () { return new Blob([buildTemplateHTML()], { type: "text/html" }); }, "Save HTML copy").refresh();
+    $("#cf-file").addEventListener("change", function (e) { var f = e.target.files && e.target.files[0]; if (f) readConfigFile(f); });
+  }
+
+  // ---------- getting files out: share sheet, download, or a plain link ----------
+  var SHARE_OK = (function () {
+    try { return !!(navigator.share && navigator.canShare && navigator.canShare({ files: [new File(["x"], "x.txt", { type: "text/plain" })] })); } catch (e) { return false; }
+  })();
+  function mimeFor(name) {
+    if (/\.xlsx$/i.test(name)) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    if (/\.json$/i.test(name)) return "application/json";
+    if (/\.html?$/i.test(name)) return "text/html";
+    return "application/octet-stream";
+  }
+  function fileActions(el, getName, makeBlob, label, onSaved) {
+    el.innerHTML = (SHARE_OK ? '<button class="btn" data-fa="share">Share / Save to Files</button>' : "") +
+      '<button class="btn primary" data-fa="dl">' + esc(label) + '</button>' +
+      '<div class="fa-alt">Didn’t download? <a data-fa="link" href="#">Tap this link instead</a></div>';
+    var link = el.querySelector("[data-fa=link]");
+    el.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-fa]"); if (!b) return;
+      var k = b.getAttribute("data-fa"), name = getName();
+      if (k === "share") {
+        var f = new File([makeBlob()], name, { type: mimeFor(name) });
+        navigator.share({ files: [f], title: name }).then(function () { if (onSaved) onSaved(); }).catch(function (err) { if (!err || err.name !== "AbortError") toast("Sharing isn’t available here — try the link"); });
+      } else if (k === "dl") { downloadBlob(name, makeBlob()); toast("Downloading " + name); if (onSaved) onSaved(); }
+      else if (k === "link") {
+        if (link.getAttribute("href") === "#") { e.preventDefault(); toast("One moment — preparing the file"); }
+        else if (onSaved) onSaved();
+      }
+    });
+    return {
+      refresh: function () {
+        var name = getName(); link.setAttribute("download", name); link.setAttribute("href", "#");
+        var fr = new FileReader(), blob = new Blob([makeBlob()], { type: mimeFor(name) });
+        fr.onload = function () { link.setAttribute("href", fr.result); };
+        fr.readAsDataURL(blob);
+      }
+    };
+  }
+  function downloadBlob(name, blob) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 2000);
+  }
+  function copyText(t) {
+    var fallback = function () {
+      try {
+        var ta = document.createElement("textarea"); ta.value = t; ta.setAttribute("readonly", "");
+        ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta);
+        ta.select(); ta.setSelectionRange(0, t.length); var ok = document.execCommand("copy"); ta.remove(); return ok;
+      } catch (e) { return false; }
+    };
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(t).then(function () { return true; }, fallback);
+    return Promise.resolve(fallback());
+  }
+  function openModal(html) {
+    var root = $("#modal-root");
+    root.innerHTML = '<div class="modal-back"><div class="modal" role="dialog" aria-modal="true">' + html + '</div></div>';
+    root.querySelector(".modal-back").addEventListener("click", function (e) { if (e.target.classList.contains("modal-back") || e.target.hasAttribute("data-close")) closeModal(); });
+  }
+  function closeModal() { $("#modal-root").innerHTML = ""; }
+  // Two-step confirmation for anything that deletes recorded data.
+  function confirmTwice(title, msg, okLabel, msg2, okLabel2, onOk, extraHTML, altBtn) {
+    openModal('<h2>' + esc(title) + '</h2><p>' + esc(msg) + '</p>' + (extraHTML || "") +
+      '<div class="row"><button class="btn" data-close>Cancel</button>' +
+      (altBtn ? '<button class="btn" id="c-alt">' + esc(altBtn.label) + '</button>' : "") +
+      '<button class="btn danger-fill" id="c-ok">' + esc(okLabel) + '</button></div>');
+    if (altBtn) $("#c-alt").addEventListener("click", altBtn.fn);
+    $("#c-ok").addEventListener("click", function () {
+      openModal('<h2 class="warn">Are you sure?</h2><p>' + esc(msg2) + '</p>' +
+        '<div class="row"><button class="btn" data-close>No, keep it</button><button class="btn danger-fill" id="c-ok2">' + esc(okLabel2) + '</button></div>');
+      $("#c-ok2").addEventListener("click", function () { closeModal(); onOk(); });
+    });
+  }
+  function confirmBox(msg, okLabel, onOk) {
+    openModal('<h2>Are you sure?</h2><p>' + esc(msg) + '</p><div class="row"><button class="btn" data-close>Cancel</button><button class="btn primary" id="c-ok">' + esc(okLabel) + '</button></div>');
+    $("#c-ok").addEventListener("click", function () { closeModal(); onOk(); });
+  }
+  var toastTimer;
+  function toast(msg) { var t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2200); }
+
+  // keep "today" right if the page stays open past midnight
+  document.addEventListener("visibilitychange", function () { if (!document.hidden && state.viewDate < today() && !document.querySelector(".notice")) { state.viewDate = today(); render(); } });
+
+  render();
+})();
+</script>
+</body>
+</html>
